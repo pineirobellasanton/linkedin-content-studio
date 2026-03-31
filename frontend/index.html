@@ -1,0 +1,1330 @@
+<!DOCTYPE html>
+<html lang="es" x-data="app()" x-init="init()">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>LinkedIn Content Studio</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <style>
+    [x-cloak] { display: none !important; }
+    .linkedin-preview { font-family: -apple-system, system-ui, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    .tag-badge { display: inline-flex; align-items: center; background: #e0f0ff; color: #0a66c2; padding: 2px 10px; border-radius: 20px; font-size: 13px; margin: 2px; }
+    .tag-badge button { margin-left: 4px; color: #0a66c2; font-size: 15px; line-height: 1; }
+    textarea { resize: vertical; }
+    .animate-spin { animation: spin 1s linear infinite; }
+    @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+    .line-clamp-3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+    .scrollbar-hide::-webkit-scrollbar { display: none; }
+    .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+  </style>
+</head>
+<body class="bg-gray-50 min-h-screen" x-cloak>
+
+<!-- ============================================================
+     CONFIGURACIÓN — Editar estos valores antes de usar
+     ============================================================ -->
+<script>
+  const CONFIG = {
+    N8N_BASE: 'https://n8n-n8n-2-11.vason9.easypanel.host/webhook',
+    APP_TOKEN: 'CAMBIA_ESTE_TOKEN',          // Mismo que en n8n
+    SUPABASE_URL: 'CAMBIA_POR_TU_URL',       // https://xxxx.supabase.co
+    SUPABASE_ANON_KEY: 'CAMBIA_POR_TU_KEY',  // eyJhbG...
+    STORAGE_BUCKET: 'post-images',
+  };
+</script>
+
+<!-- ============================================================
+     NOTIFICACIÓN GLOBAL
+     ============================================================ -->
+<div x-show="notification.show"
+     x-transition:enter="transition ease-out duration-300"
+     x-transition:enter-start="opacity-0 translate-y-2"
+     x-transition:enter-end="opacity-100 translate-y-0"
+     x-transition:leave="transition ease-in duration-200"
+     x-transition:leave-end="opacity-0"
+     class="fixed top-4 right-4 z-50 max-w-sm w-full shadow-lg rounded-xl p-4 flex items-start gap-3"
+     :class="notification.type === 'error' ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'">
+  <span class="text-xl" x-text="notification.type === 'error' ? '❌' : '✅'"></span>
+  <div>
+    <p class="font-semibold text-sm" :class="notification.type === 'error' ? 'text-red-800' : 'text-green-800'" x-text="notification.title"></p>
+    <p class="text-sm mt-0.5" :class="notification.type === 'error' ? 'text-red-600' : 'text-green-600'" x-text="notification.message"></p>
+  </div>
+  <button @click="notification.show = false" class="ml-auto text-gray-400 hover:text-gray-600 text-lg leading-none">&times;</button>
+</div>
+
+<!-- ============================================================
+     NAVEGACIÓN
+     ============================================================ -->
+<nav class="bg-white border-b border-gray-200 sticky top-0 z-40">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div class="flex items-center justify-between h-14">
+      <!-- Logo -->
+      <div class="flex items-center gap-2 cursor-pointer" @click="goTo('dashboard')">
+        <div class="w-8 h-8 bg-[#0a66c2] rounded-lg flex items-center justify-center">
+          <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+        </div>
+        <span class="font-bold text-gray-900 text-sm hidden sm:block">Content Studio</span>
+      </div>
+
+      <!-- Nav links -->
+      <div class="flex items-center gap-1">
+        <button @click="goTo('dashboard')"
+                class="px-3 py-1.5 text-sm rounded-lg transition-colors"
+                :class="view === 'dashboard' ? 'bg-blue-50 text-[#0a66c2] font-medium' : 'text-gray-600 hover:bg-gray-100'">
+          Inicio
+        </button>
+        <button @click="goTo('history')"
+                class="px-3 py-1.5 text-sm rounded-lg transition-colors"
+                :class="view === 'history' ? 'bg-blue-50 text-[#0a66c2] font-medium' : 'text-gray-600 hover:bg-gray-100'">
+          Historial
+        </button>
+        <button @click="goTo('settings')"
+                class="px-3 py-1.5 text-sm rounded-lg transition-colors"
+                :class="view === 'settings' ? 'bg-blue-50 text-[#0a66c2] font-medium' : 'text-gray-600 hover:bg-gray-100'">
+          Config
+        </button>
+        <button @click="goTo('create')"
+                class="ml-2 px-4 py-1.5 bg-[#0a66c2] text-white text-sm font-medium rounded-lg hover:bg-[#004182] transition-colors flex items-center gap-1.5">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
+          Nuevo post
+        </button>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<!-- ============================================================
+     VIEW: DASHBOARD
+     ============================================================ -->
+<div x-show="view === 'dashboard'" class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+
+  <!-- Loading inicial -->
+  <div x-show="loadingDashboard" class="flex items-center justify-center py-20">
+    <div class="w-8 h-8 border-4 border-[#0a66c2] border-t-transparent rounded-full animate-spin"></div>
+  </div>
+
+  <div x-show="!loadingDashboard">
+    <!-- Ideas de hoy -->
+    <div x-show="ideas.length > 0" class="mb-8">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider">Ideas de hoy ✨</h2>
+        <span class="text-xs text-gray-400" x-text="ideas.length + ' ideas'"></span>
+      </div>
+      <div class="flex gap-3 overflow-x-auto scrollbar-hide pb-2">
+        <template x-for="idea in ideas" :key="idea.id">
+          <div class="flex-shrink-0 w-72 bg-white rounded-xl border border-gray-200 p-4 hover:border-[#0a66c2] hover:shadow-sm transition-all cursor-default">
+            <div class="flex items-start justify-between gap-2">
+              <div>
+                <p class="text-sm font-semibold text-gray-900 line-clamp-2" x-text="idea.title"></p>
+                <p class="text-xs text-gray-500 mt-1 line-clamp-2" x-text="idea.description"></p>
+              </div>
+            </div>
+            <div class="flex items-center justify-between mt-3">
+              <span class="text-xs bg-blue-50 text-[#0a66c2] px-2 py-0.5 rounded-full" x-text="idea.angle || 'idea'"></span>
+              <button @click="useIdea(idea)"
+                      class="text-xs text-[#0a66c2] font-medium hover:underline">
+                Usar esta idea →
+              </button>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+
+    <!-- Stats rápidas -->
+    <div class="grid grid-cols-3 gap-4 mb-8">
+      <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
+        <p class="text-2xl font-bold text-gray-900" x-text="stats.total"></p>
+        <p class="text-xs text-gray-500 mt-1">Posts totales</p>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
+        <p class="text-2xl font-bold text-[#0a66c2]" x-text="stats.published"></p>
+        <p class="text-xs text-gray-500 mt-1">Publicados</p>
+      </div>
+      <div class="bg-white rounded-xl border border-gray-200 p-4 text-center">
+        <p class="text-2xl font-bold text-amber-500" x-text="stats.drafts"></p>
+        <p class="text-xs text-gray-500 mt-1">Borradores</p>
+      </div>
+    </div>
+
+    <!-- Borradores recientes -->
+    <div>
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="font-semibold text-gray-900">Borradores recientes</h2>
+        <button @click="goTo('history')" class="text-sm text-[#0a66c2] hover:underline">Ver todos →</button>
+      </div>
+
+      <!-- Empty state -->
+      <div x-show="posts.length === 0" class="bg-white rounded-xl border border-dashed border-gray-300 p-12 text-center">
+        <div class="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4">
+          <svg class="w-8 h-8 text-[#0a66c2]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
+        </div>
+        <p class="font-semibold text-gray-900">Sin posts todavía</p>
+        <p class="text-sm text-gray-500 mt-1">Crea tu primer post con IA</p>
+        <button @click="goTo('create')" class="mt-4 px-5 py-2 bg-[#0a66c2] text-white text-sm font-medium rounded-lg hover:bg-[#004182]">
+          Crear primer post
+        </button>
+      </div>
+
+      <!-- Grid de posts -->
+      <div x-show="posts.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <template x-for="post in posts.slice(0,9)" :key="post.id">
+          <div class="bg-white rounded-xl border border-gray-200 hover:shadow-md transition-shadow p-4 flex flex-col">
+            <!-- Status badge -->
+            <div class="flex items-center justify-between mb-3">
+              <span class="text-xs px-2 py-0.5 rounded-full font-medium"
+                    :class="statusBadgeClass(post.status)"
+                    x-text="statusLabel(post.status)">
+              </span>
+              <span class="text-xs text-gray-400" x-text="formatDate(post.created_at)"></span>
+            </div>
+            <!-- Hook preview -->
+            <p class="text-sm text-gray-900 font-medium line-clamp-3 flex-1"
+               x-text="getHook(post) || '(sin hook generado)'">
+            </p>
+            <!-- Input type -->
+            <p class="text-xs text-gray-400 mt-2 mb-3" x-text="inputTypeLabel(post.input_type)"></p>
+            <!-- Actions -->
+            <div class="flex gap-2 pt-3 border-t border-gray-100">
+              <button @click="openEdit(post)"
+                      class="flex-1 text-xs text-center py-1.5 rounded-lg border border-gray-200 hover:border-[#0a66c2] hover:text-[#0a66c2] transition-colors">
+                Editar
+              </button>
+              <button @click="openPreview(post)"
+                      class="flex-1 text-xs text-center py-1.5 rounded-lg bg-[#0a66c2] text-white hover:bg-[#004182] transition-colors">
+                Preview
+              </button>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     VIEW: CREATE
+     ============================================================ -->
+<div x-show="view === 'create'" class="max-w-2xl mx-auto px-4 py-8">
+  <div class="mb-6">
+    <button @click="goTo('dashboard')" class="text-sm text-gray-500 hover:text-gray-800 flex items-center gap-1 mb-4">
+      ← Volver
+    </button>
+    <h1 class="text-xl font-bold text-gray-900">Nuevo post de LinkedIn</h1>
+    <p class="text-sm text-gray-500 mt-1">La IA generará 3 versiones diferentes para que elijas</p>
+  </div>
+
+  <!-- Selector de modo -->
+  <div class="grid grid-cols-3 gap-3 mb-6">
+    <button @click="createForm.type = 'text_only'"
+            class="p-4 rounded-xl border-2 text-left transition-all"
+            :class="createForm.type === 'text_only' ? 'border-[#0a66c2] bg-blue-50' : 'border-gray-200 hover:border-gray-300'">
+      <div class="text-2xl mb-2">✍️</div>
+      <p class="font-semibold text-sm text-gray-900">Solo texto</p>
+      <p class="text-xs text-gray-500 mt-1">Escribe tu idea o reflexión</p>
+    </button>
+    <button @click="createForm.type = 'text_photo'"
+            class="p-4 rounded-xl border-2 text-left transition-all"
+            :class="createForm.type === 'text_photo' ? 'border-[#0a66c2] bg-blue-50' : 'border-gray-200 hover:border-gray-300'">
+      <div class="text-2xl mb-2">📷</div>
+      <p class="font-semibold text-sm text-gray-900">Texto + foto</p>
+      <p class="text-xs text-gray-500 mt-1">Combina texto con imagen tuya</p>
+    </button>
+    <button @click="createForm.type = 'brief'"
+            class="p-4 rounded-xl border-2 text-left transition-all"
+            :class="createForm.type === 'brief' ? 'border-[#0a66c2] bg-blue-50' : 'border-gray-200 hover:border-gray-300'">
+      <div class="text-2xl mb-2">💡</div>
+      <p class="font-semibold text-sm text-gray-900">Idea breve</p>
+      <p class="text-xs text-gray-500 mt-1">Solo el tema, la IA desarrolla</p>
+    </button>
+  </div>
+
+  <!-- Textarea -->
+  <div class="mb-5">
+    <label class="block text-sm font-medium text-gray-700 mb-2"
+           x-text="createForm.type === 'brief' ? '¿Sobre qué tema quieres publicar?' : '¿Qué quieres contar?'">
+    </label>
+    <textarea x-model="createForm.text"
+              class="w-full border border-gray-300 rounded-xl p-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#0a66c2] focus:border-transparent min-h-32"
+              :placeholder="createForm.type === 'brief' ? 'Ej: Cómo el microlearning mejora la retención en equipos industriales...' : 'Ej: Hoy tuve una sesión de formación con un equipo de mandos intermedios y me di cuenta de que...'"
+    ></textarea>
+    <p class="text-xs text-gray-400 mt-1" x-text="createForm.text.length + ' caracteres'"></p>
+  </div>
+
+  <!-- Upload de foto (solo en modo text_photo) -->
+  <div x-show="createForm.type === 'text_photo'" class="mb-5">
+    <label class="block text-sm font-medium text-gray-700 mb-2">Sube tu foto</label>
+
+    <!-- Drop zone -->
+    <div x-show="!createForm.imagePreview"
+         class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:border-[#0a66c2] transition-colors cursor-pointer"
+         @click="$refs.photoInput.click()"
+         @dragover.prevent
+         @drop.prevent="handleDrop($event)">
+      <svg class="w-8 h-8 text-gray-400 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+      <p class="text-sm text-gray-500">Arrastra una foto o <span class="text-[#0a66c2] font-medium">haz click aquí</span></p>
+      <p class="text-xs text-gray-400 mt-1">JPG, PNG o WEBP • Máx 5MB</p>
+    </div>
+
+    <!-- Preview de imagen -->
+    <div x-show="createForm.imagePreview" class="relative">
+      <img :src="createForm.imagePreview" class="w-full h-48 object-cover rounded-xl">
+      <button @click="createForm.imagePreview = null; createForm.imageFile = null; createForm.imageUrl = null"
+              class="absolute top-2 right-2 bg-white rounded-full w-7 h-7 flex items-center justify-center shadow text-gray-500 hover:text-red-500">
+        ×
+      </button>
+      <div x-show="createForm.uploadingImage" class="absolute inset-0 bg-black/40 rounded-xl flex items-center justify-center">
+        <div class="w-6 h-6 border-3 border-white border-t-transparent rounded-full animate-spin"></div>
+      </div>
+    </div>
+
+    <input type="file" x-ref="photoInput" accept="image/*" class="hidden" @change="handleImageSelect($event)">
+  </div>
+
+  <!-- Botón generar -->
+  <button @click="generatePost()"
+          :disabled="creating || createForm.text.length < 10 || (createForm.type === 'text_photo' && createForm.uploadingImage)"
+          class="w-full py-3 bg-[#0a66c2] text-white font-semibold rounded-xl hover:bg-[#004182] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
+    <div x-show="creating" class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+    <span x-text="creating ? 'Generando 3 versiones con IA...' : 'Generar versiones'"></span>
+  </button>
+
+  <p class="text-xs text-center text-gray-400 mt-3">GPT-4o generará 3 versiones diferentes del post</p>
+</div>
+
+<!-- ============================================================
+     VIEW: EDIT
+     ============================================================ -->
+<div x-show="view === 'edit'" class="max-w-7xl mx-auto px-4 py-6">
+  <div class="mb-5 flex items-center justify-between">
+    <button @click="goTo('dashboard')" class="text-sm text-gray-500 hover:text-gray-800 flex items-center gap-1">
+      ← Volver
+    </button>
+    <div class="flex gap-2">
+      <button @click="saveDraft()"
+              :disabled="saving"
+              class="px-4 py-1.5 text-sm border border-gray-300 rounded-lg hover:border-gray-400 disabled:opacity-50">
+        <span x-text="saving ? 'Guardando...' : 'Guardar borrador'"></span>
+      </button>
+      <button @click="openPreview(currentPost)"
+              class="px-4 py-1.5 text-sm bg-[#0a66c2] text-white rounded-lg hover:bg-[#004182]">
+        Ver preview →
+      </button>
+    </div>
+  </div>
+
+  <div x-show="currentPost" class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+
+    <!-- Panel izquierdo: Versiones + edición -->
+    <div class="lg:col-span-3 space-y-4">
+
+      <!-- Selector de versión -->
+      <div class="bg-white rounded-xl border border-gray-200 p-4">
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Elige una versión</p>
+        <div class="grid grid-cols-3 gap-2">
+          <template x-for="n in [1,2,3]" :key="n">
+            <button @click="selectVersion(n)"
+                    class="p-3 rounded-lg border-2 text-left transition-all"
+                    :class="editState.selectedVersion === n ? 'border-[#0a66c2] bg-blue-50' : 'border-gray-200 hover:border-gray-300'">
+              <p class="text-xs font-bold mb-1" :class="editState.selectedVersion === n ? 'text-[#0a66c2]' : 'text-gray-600'"
+                 x-text="'V' + n + ': ' + versionAngle(n)">
+              </p>
+              <p class="text-xs text-gray-500 line-clamp-2"
+                 x-text="getVersionHook(n)">
+              </p>
+            </button>
+          </template>
+        </div>
+      </div>
+
+      <!-- Campos editables -->
+      <div class="bg-white rounded-xl border border-gray-200 p-4 space-y-4">
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider">Edita el contenido</p>
+
+        <!-- Hook -->
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">
+            Hook (primera línea)
+            <span class="text-gray-400 font-normal ml-1" x-text="editState.hook.length + '/150'"></span>
+          </label>
+          <textarea x-model="editState.hook" @input="scheduleAutoSave()"
+                    class="w-full border border-gray-300 rounded-lg p-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#0a66c2] min-h-16"
+                    maxlength="200" placeholder="La primera línea que para el scroll..."></textarea>
+        </div>
+
+        <!-- Body -->
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">
+            Cuerpo del post
+            <span class="text-gray-400 font-normal ml-1" x-text="editState.body.length + '/3000'"></span>
+            <span x-show="editState.hook.length + editState.body.length + editState.cta.length > 2800"
+                  class="text-amber-500 font-normal ml-2 text-xs">⚠ Cerca del límite</span>
+          </label>
+          <textarea x-model="editState.body" @input="scheduleAutoSave()"
+                    class="w-full border border-gray-300 rounded-lg p-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#0a66c2] min-h-48"
+                    placeholder="Desarrollo del argumento..."></textarea>
+        </div>
+
+        <!-- CTA -->
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">CTA (llamada a la acción)</label>
+          <textarea x-model="editState.cta" @input="scheduleAutoSave()"
+                    class="w-full border border-gray-300 rounded-lg p-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#0a66c2] min-h-12"
+                    placeholder="¿Qué opinas tú sobre esto?"></textarea>
+        </div>
+
+        <!-- Hashtags -->
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">Hashtags</label>
+          <div class="border border-gray-300 rounded-lg p-2 min-h-10 flex flex-wrap gap-1 items-center">
+            <template x-for="(tag, i) in editState.hashtags" :key="i">
+              <span class="tag-badge">
+                #<span x-text="tag"></span>
+                <button @click="removeHashtag(i)" type="button">&times;</button>
+              </span>
+            </template>
+            <input type="text" x-model="editState.newHashtag"
+                   @keydown.enter.prevent="addHashtag()"
+                   @keydown.comma.prevent="addHashtag()"
+                   class="border-none outline-none text-sm flex-1 min-w-20 bg-transparent"
+                   placeholder="Escribe y pulsa Enter...">
+          </div>
+        </div>
+
+        <!-- Comentario fijado -->
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">
+            Comentario fijado (opcional)
+            <span class="text-gray-400 font-normal"> — primer comentario que fijarás al publicar</span>
+          </label>
+          <textarea x-model="editState.pinned_comment" @input="scheduleAutoSave()"
+                    class="w-full border border-gray-300 rounded-lg p-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#0a66c2] min-h-20"
+                    placeholder="Contexto adicional, enlace a recurso, pregunta de debate..."></textarea>
+        </div>
+
+        <!-- Auto-save indicator -->
+        <p class="text-xs text-gray-400 text-right" x-show="editState.autoSaveStatus" x-text="editState.autoSaveStatus"></p>
+      </div>
+    </div>
+
+    <!-- Panel derecho: Imágenes + Preview rápido -->
+    <div class="lg:col-span-2 space-y-4">
+
+      <!-- Sección imágenes -->
+      <div class="bg-white rounded-xl border border-gray-200 p-4">
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Imagen del post</p>
+
+        <!-- Estado: sin imagen -->
+        <div x-show="!currentPost?.image_status || currentPost?.image_status === 'none'">
+          <div class="space-y-3">
+            <div>
+              <label class="block text-xs font-medium text-gray-700 mb-1">Prompt para la imagen</label>
+              <textarea x-model="imageState.prompt"
+                        class="w-full border border-gray-300 rounded-lg p-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#0a66c2] min-h-16"
+                        placeholder="Ej: Profesional dando formación en sala moderna, luz natural, estilo corporativo europeo, sin texto..."></textarea>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <button @click="generateImages('generate')"
+                      :disabled="imageState.generating || !imageState.prompt"
+                      class="py-2 text-xs font-medium bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 flex items-center justify-center gap-1">
+                <div x-show="imageState.generating" class="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin"></div>
+                ✨ Generar imagen
+              </button>
+              <button x-show="currentPost?.input_type === 'text_photo' && currentPost?.uploaded_image_url"
+                      @click="generateImages('edit')"
+                      :disabled="imageState.generating"
+                      class="py-2 text-xs font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center justify-center gap-1">
+                🖼 Editar foto
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Estado: generando (pending) -->
+        <div x-show="currentPost?.image_status === 'pending'" class="text-center py-6">
+          <div class="w-10 h-10 border-4 border-purple-500 border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+          <p class="text-sm text-gray-600">Generando imágenes con IA...</p>
+          <p class="text-xs text-gray-400 mt-1">Puede tardar 30-90 segundos</p>
+        </div>
+
+        <!-- Estado: listo — 2 opciones -->
+        <div x-show="currentPost?.image_status === 'ready'">
+          <p class="text-xs text-gray-500 mb-3">Elige una imagen:</p>
+          <div class="space-y-3">
+            <template x-for="(imgUrl, idx) in [currentPost?.image_option_1, currentPost?.image_option_2].filter(Boolean)" :key="idx">
+              <div class="relative cursor-pointer rounded-lg overflow-hidden border-2 transition-all"
+                   :class="editState.selectedImage === imgUrl ? 'border-[#0a66c2]' : 'border-gray-200 hover:border-gray-400'"
+                   @click="selectImage(imgUrl)">
+                <img :src="imgUrl" class="w-full h-32 object-cover">
+                <div x-show="editState.selectedImage === imgUrl"
+                     class="absolute inset-0 bg-[#0a66c2]/10 flex items-center justify-center">
+                  <div class="bg-[#0a66c2] text-white rounded-full w-8 h-8 flex items-center justify-center font-bold">✓</div>
+                </div>
+                <span class="absolute top-2 left-2 bg-white text-xs px-2 py-0.5 rounded-full font-medium" x-text="'Opción ' + (idx+1)"></span>
+              </div>
+            </template>
+          </div>
+          <button @click="resetImageState()"
+                  class="mt-3 text-xs text-gray-500 hover:text-gray-700 underline w-full text-center">
+            Generar otras imágenes
+          </button>
+        </div>
+
+        <!-- Estado: error -->
+        <div x-show="currentPost?.image_status === 'failed'" class="text-center py-4">
+          <p class="text-sm text-red-500">Error al generar la imagen</p>
+          <button @click="resetImageState()" class="mt-2 text-xs text-[#0a66c2] hover:underline">Intentar de nuevo</button>
+        </div>
+      </div>
+
+      <!-- Preview rápido del hook -->
+      <div class="bg-white rounded-xl border border-gray-200 p-4">
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Preview LinkedIn</p>
+        <div class="linkedin-preview bg-white rounded-lg border border-gray-200 p-4">
+          <div class="flex items-center gap-2 mb-3">
+            <div class="w-9 h-9 rounded-full bg-gray-200 flex items-center justify-center text-xs font-bold text-gray-500"
+                 x-text="settings.author_name ? settings.author_name[0] : 'A'">
+            </div>
+            <div>
+              <p class="text-xs font-semibold text-gray-900" x-text="settings.author_name || 'Tu nombre'"></p>
+              <p class="text-xs text-gray-500" x-text="settings.author_title || 'Tu cargo'"></p>
+            </div>
+          </div>
+          <!-- Imagen seleccionada -->
+          <img x-show="editState.selectedImage" :src="editState.selectedImage" class="w-full h-28 object-cover rounded mb-2">
+          <!-- Texto del post -->
+          <p class="text-xs text-gray-900 whitespace-pre-line" x-text="(editState.hook || '') + '\n\n' + (editState.body || '').substring(0,200) + ((editState.body || '').length > 200 ? '...' : '')"></p>
+          <div x-show="editState.hashtags.length > 0" class="mt-2">
+            <template x-for="h in editState.hashtags.slice(0,4)" :key="h">
+              <span class="text-xs text-[#0a66c2] mr-1" x-text="'#' + h"></span>
+            </template>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     VIEW: PREVIEW
+     ============================================================ -->
+<div x-show="view === 'preview'" class="max-w-2xl mx-auto px-4 py-8">
+  <div class="mb-6 flex items-center justify-between">
+    <button @click="goTo('edit')" class="text-sm text-gray-500 hover:text-gray-800 flex items-center gap-1">
+      ← Editar
+    </button>
+    <span class="text-xs px-3 py-1 rounded-full font-medium"
+          :class="statusBadgeClass(currentPost?.status)"
+          x-text="statusLabel(currentPost?.status)">
+    </span>
+  </div>
+
+  <div x-show="currentPost">
+    <!-- LinkedIn post mock-up -->
+    <div class="linkedin-preview bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden mb-4">
+      <!-- Header del post -->
+      <div class="p-4 pb-2">
+        <div class="flex items-start gap-3">
+          <div class="w-12 h-12 rounded-full bg-gray-200 flex items-center justify-center text-lg font-bold text-gray-500 flex-shrink-0"
+               x-text="settings.author_name ? settings.author_name[0] : 'A'">
+          </div>
+          <div>
+            <p class="font-semibold text-gray-900 text-sm" x-text="settings.author_name || 'Tu nombre'"></p>
+            <p class="text-xs text-gray-500" x-text="settings.author_title || 'Tu cargo'"></p>
+            <p class="text-xs text-gray-400">Ahora • 🌐</p>
+          </div>
+          <div class="ml-auto">
+            <svg class="w-5 h-5 text-gray-400" fill="currentColor" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg>
+          </div>
+        </div>
+      </div>
+
+      <!-- Texto del post -->
+      <div class="px-4 pb-3">
+        <div x-data="{ expanded: false }">
+          <p class="text-sm text-gray-900 whitespace-pre-line"
+             :class="!expanded ? 'line-clamp-3' : ''"
+             x-text="getPreviewText()">
+          </p>
+          <button @click="expanded = !expanded"
+                  class="text-sm text-gray-500 hover:text-gray-700 mt-1"
+                  x-show="getPreviewText().length > 200"
+                  x-text="expanded ? 'ver menos' : '...ver más'">
+          </button>
+          <!-- Hashtags -->
+          <div x-show="getPreviewHashtags().length > 0" class="mt-2">
+            <template x-for="h in getPreviewHashtags()" :key="h">
+              <span class="text-sm text-[#0a66c2] mr-1 cursor-pointer hover:underline" x-text="'#' + h"></span>
+            </template>
+          </div>
+        </div>
+      </div>
+
+      <!-- Imagen -->
+      <img x-show="editState.selectedImage"
+           :src="editState.selectedImage"
+           class="w-full object-cover max-h-80">
+
+      <!-- Acciones fake del post LinkedIn -->
+      <div class="px-4 py-2 border-t border-gray-100 flex gap-4">
+        <span class="text-xs text-gray-400 flex items-center gap-1">👍 Me gusta</span>
+        <span class="text-xs text-gray-400 flex items-center gap-1">💬 Comentar</span>
+        <span class="text-xs text-gray-400 flex items-center gap-1">🔄 Compartir</span>
+        <span class="text-xs text-gray-400 flex items-center gap-1">✉️ Enviar</span>
+      </div>
+    </div>
+
+    <!-- Comentario fijado preview -->
+    <div x-show="getPreviewPinnedComment()" class="bg-blue-50 rounded-xl border border-blue-100 p-4 mb-6">
+      <p class="text-xs font-semibold text-[#0a66c2] mb-1">📌 Comentario fijado que publicarás:</p>
+      <p class="text-sm text-gray-700" x-text="getPreviewPinnedComment()"></p>
+    </div>
+
+    <!-- Acciones -->
+    <div class="space-y-3">
+      <!-- Botón copiar todo -->
+      <button @click="copyFullPost()"
+              class="w-full py-3 border-2 border-[#0a66c2] text-[#0a66c2] font-semibold rounded-xl hover:bg-blue-50 transition-colors flex items-center justify-center gap-2">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/></svg>
+        Copiar texto del post
+      </button>
+
+      <!-- Instrucción manual -->
+      <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center">
+        <p class="text-sm font-semibold text-amber-800">Pasos para publicar</p>
+        <p class="text-sm text-amber-700 mt-1">1. Copia el texto → 2. Abre LinkedIn → 3. Crea la publicación → 4. Vuelve aquí y marca como publicado</p>
+        <a href="https://www.linkedin.com/feed/" target="_blank"
+           class="inline-block mt-3 px-4 py-2 bg-[#0a66c2] text-white text-sm font-medium rounded-lg hover:bg-[#004182]">
+          Abrir LinkedIn →
+        </a>
+      </div>
+
+      <!-- Marcar como publicado -->
+      <div x-show="currentPost?.status !== 'published'">
+        <div class="flex gap-2">
+          <input x-model="publishedUrl" type="url"
+                 class="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#0a66c2]"
+                 placeholder="URL del post publicado (opcional)">
+          <button @click="markPublished()"
+                  :disabled="markingPublished"
+                  class="px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-lg hover:bg-green-700 disabled:opacity-50 whitespace-nowrap">
+            <span x-text="markingPublished ? 'Guardando...' : '✓ Marcar publicado'"></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Ya publicado -->
+      <div x-show="currentPost?.status === 'published'" class="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
+        <p class="text-green-800 font-semibold">✅ Post marcado como publicado</p>
+        <a x-show="currentPost?.linkedin_url" :href="currentPost?.linkedin_url" target="_blank"
+           class="text-sm text-[#0a66c2] hover:underline mt-1 block">Ver en LinkedIn →</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============================================================
+     VIEW: HISTORY
+     ============================================================ -->
+<div x-show="view === 'history'" class="max-w-5xl mx-auto px-4 py-6">
+  <h1 class="text-xl font-bold text-gray-900 mb-5">Historial de posts</h1>
+
+  <!-- Filtros -->
+  <div class="flex gap-2 mb-5 overflow-x-auto scrollbar-hide">
+    <template x-for="f in historyFilters" :key="f.value">
+      <button @click="historyFilter = f.value; loadHistory()"
+              class="px-4 py-1.5 text-sm rounded-full whitespace-nowrap transition-colors"
+              :class="historyFilter === f.value ? 'bg-[#0a66c2] text-white' : 'bg-white border border-gray-300 text-gray-600 hover:border-gray-400'"
+              x-text="f.label">
+      </button>
+    </template>
+  </div>
+
+  <!-- Búsqueda -->
+  <div class="mb-4 relative">
+    <svg class="absolute left-3 top-2.5 w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+    <input x-model="historySearch" type="text"
+           class="w-full pl-9 pr-4 py-2 border border-gray-300 rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-[#0a66c2]"
+           placeholder="Buscar en tus posts...">
+  </div>
+
+  <!-- Loading -->
+  <div x-show="loadingHistory" class="flex justify-center py-10">
+    <div class="w-6 h-6 border-4 border-[#0a66c2] border-t-transparent rounded-full animate-spin"></div>
+  </div>
+
+  <!-- Lista de posts -->
+  <div x-show="!loadingHistory" class="space-y-3">
+    <template x-for="post in filteredHistoryPosts()" :key="post.id">
+      <div class="bg-white rounded-xl border border-gray-200 p-4 flex items-start gap-4 hover:shadow-sm transition-shadow">
+        <!-- Imagen thumbnail -->
+        <img x-show="post.selected_image_url" :src="post.selected_image_url"
+             class="w-16 h-16 object-cover rounded-lg flex-shrink-0">
+        <div x-show="!post.selected_image_url"
+             class="w-16 h-16 bg-gray-100 rounded-lg flex-shrink-0 flex items-center justify-center">
+          <svg class="w-6 h-6 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+        </div>
+
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 mb-1">
+            <span class="text-xs px-2 py-0.5 rounded-full font-medium"
+                  :class="statusBadgeClass(post.status)"
+                  x-text="statusLabel(post.status)">
+            </span>
+            <span class="text-xs text-gray-400" x-text="formatDate(post.created_at)"></span>
+            <span class="text-xs text-gray-300" x-text="inputTypeLabel(post.input_type)"></span>
+          </div>
+          <p class="text-sm text-gray-900 font-medium truncate" x-text="getHook(post) || 'Sin hook'"></p>
+          <p class="text-xs text-gray-500 truncate mt-0.5" x-text="(post.versions ? JSON.parse(JSON.stringify(post.versions))[0]?.body?.substring(0,100) : '') + '...'"></p>
+        </div>
+
+        <div class="flex flex-col gap-1.5 flex-shrink-0">
+          <button @click="openEdit(post)"
+                  class="text-xs px-3 py-1 border border-gray-200 rounded-lg hover:border-[#0a66c2] hover:text-[#0a66c2] transition-colors">
+            Editar
+          </button>
+          <button @click="openPreview(post)"
+                  class="text-xs px-3 py-1 bg-[#0a66c2] text-white rounded-lg hover:bg-[#004182] transition-colors">
+            Preview
+          </button>
+        </div>
+      </div>
+    </template>
+
+    <!-- Empty state -->
+    <div x-show="filteredHistoryPosts().length === 0 && !loadingHistory" class="text-center py-12 text-gray-500">
+      <p class="text-sm">No hay posts con este filtro</p>
+    </div>
+  </div>
+
+  <!-- Paginación -->
+  <div x-show="historyTotal > historyLimit" class="flex justify-center gap-2 mt-6">
+    <button @click="historyPage--; loadHistory()"
+            :disabled="historyPage <= 1"
+            class="px-4 py-1.5 text-sm border border-gray-300 rounded-lg disabled:opacity-40 hover:border-gray-400">
+      ← Anterior
+    </button>
+    <span class="px-4 py-1.5 text-sm text-gray-500"
+          x-text="'Pág. ' + historyPage + ' de ' + Math.ceil(historyTotal/historyLimit)">
+    </span>
+    <button @click="historyPage++; loadHistory()"
+            :disabled="historyPage >= Math.ceil(historyTotal/historyLimit)"
+            class="px-4 py-1.5 text-sm border border-gray-300 rounded-lg disabled:opacity-40 hover:border-gray-400">
+      Siguiente →
+    </button>
+  </div>
+</div>
+
+<!-- ============================================================
+     VIEW: SETTINGS
+     ============================================================ -->
+<div x-show="view === 'settings'" class="max-w-xl mx-auto px-4 py-8">
+  <h1 class="text-xl font-bold text-gray-900 mb-6">Configuración</h1>
+
+  <div class="bg-white rounded-xl border border-gray-200 p-5 space-y-5">
+
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">Tu nombre</label>
+      <input x-model="settings.author_name" type="text"
+             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#0a66c2]"
+             placeholder="Ana García">
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">Tu cargo / título profesional</label>
+      <input x-model="settings.author_title" type="text"
+             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#0a66c2]"
+             placeholder="Directora de Formación Empresarial">
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">
+        Palabras clave de marca
+        <span class="text-gray-400 font-normal"> — se inyectan en los prompts de IA</span>
+      </label>
+      <div class="border border-gray-300 rounded-lg p-2 min-h-10 flex flex-wrap gap-1 items-center">
+        <template x-for="(kw, i) in settings.brand_keywords" :key="i">
+          <span class="tag-badge">
+            <span x-text="kw"></span>
+            <button @click="settings.brand_keywords.splice(i, 1)" type="button">&times;</button>
+          </span>
+        </template>
+        <input type="text" x-model="settings.newKeyword"
+               @keydown.enter.prevent="if(settings.newKeyword.trim()){settings.brand_keywords.push(settings.newKeyword.trim());settings.newKeyword=''}"
+               class="border-none outline-none text-sm flex-1 min-w-20 bg-transparent"
+               placeholder="Escribe y pulsa Enter...">
+      </div>
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">
+        Kie.ai API Key
+        <a href="https://kie.ai" target="_blank" class="text-[#0a66c2] text-xs font-normal ml-1 hover:underline">→ Obtener key</a>
+      </label>
+      <input x-model="settings.kieai_api_key" type="password"
+             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#0a66c2] font-mono"
+             placeholder="kieai-...">
+    </div>
+
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">Ideas por día</label>
+      <select x-model="settings.ideas_per_day"
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[#0a66c2]">
+        <option value="3">3 ideas</option>
+        <option value="5">5 ideas</option>
+        <option value="7">7 ideas</option>
+        <option value="10">10 ideas</option>
+      </select>
+    </div>
+
+    <button @click="saveSettings()"
+            :disabled="savingSettings"
+            class="w-full py-2.5 bg-[#0a66c2] text-white font-semibold rounded-xl hover:bg-[#004182] disabled:opacity-50 transition-colors">
+      <span x-text="savingSettings ? 'Guardando...' : 'Guardar configuración'"></span>
+    </button>
+  </div>
+
+  <!-- Info de conexión -->
+  <div class="mt-5 bg-gray-50 rounded-xl border border-gray-200 p-4">
+    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Información de conexión</p>
+    <div class="space-y-1">
+      <div class="flex justify-between text-xs">
+        <span class="text-gray-500">n8n</span>
+        <span class="font-mono text-gray-700" x-text="CONFIG.N8N_BASE.replace('https://','').split('/')[0]"></span>
+      </div>
+      <div class="flex justify-between text-xs">
+        <span class="text-gray-500">Supabase</span>
+        <span class="font-mono text-gray-700" x-text="CONFIG.SUPABASE_URL.replace('https://','').split('.')[0] || 'No configurado'"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ============================================================
+     ALPINE.JS — LÓGICA DE LA APP
+     ============================================================ -->
+<script>
+function app() {
+  return {
+    // ── Estado global ─────────────────────────────────────────
+    view: 'dashboard',
+    notification: { show: false, type: 'success', title: '', message: '' },
+
+    // Dashboard
+    posts: [],
+    ideas: [],
+    stats: { total: 0, published: 0, drafts: 0 },
+    loadingDashboard: true,
+
+    // Crear post
+    createForm: {
+      type: 'text_only',
+      text: '',
+      imageFile: null,
+      imagePreview: null,
+      imageUrl: null,
+      uploadingImage: false,
+    },
+    creating: false,
+
+    // Editar post
+    currentPost: null,
+    editState: {
+      selectedVersion: 1,
+      hook: '',
+      body: '',
+      cta: '',
+      hashtags: [],
+      newHashtag: '',
+      pinned_comment: '',
+      selectedImage: null,
+      autoSaveStatus: '',
+    },
+    autoSaveTimer: null,
+    saving: false,
+    imageState: {
+      prompt: '',
+      generating: false,
+    },
+    pollingTimer: null,
+
+    // Preview
+    publishedUrl: '',
+    markingPublished: false,
+
+    // History
+    historyPosts: [],
+    historyFilter: 'all',
+    historySearch: '',
+    historyPage: 1,
+    historyLimit: 20,
+    historyTotal: 0,
+    loadingHistory: false,
+    historyFilters: [
+      { value: 'all', label: 'Todos' },
+      { value: 'draft', label: 'Borradores' },
+      { value: 'approved', label: 'Aprobados' },
+      { value: 'published', label: 'Publicados' },
+    ],
+
+    // Settings
+    settings: {
+      author_name: '',
+      author_title: '',
+      brand_keywords: [],
+      kieai_api_key: '',
+      ideas_per_day: 5,
+      newKeyword: '',
+    },
+    savingSettings: false,
+
+    // ── API helper ────────────────────────────────────────────
+    async api(path, method = 'GET', body = null) {
+      const opts = {
+        method,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-App-Token': CONFIG.APP_TOKEN,
+        },
+      };
+      if (body) opts.body = JSON.stringify(body);
+      const res = await fetch(CONFIG.N8N_BASE + path, opts);
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(err.error || 'Error en la petición');
+      }
+      return res.json();
+    },
+
+    // ── Inicialización ────────────────────────────────────────
+    async init() {
+      await this.loadDashboard();
+      await this.loadSettingsFromSupabase();
+    },
+
+    // ── Notificaciones ────────────────────────────────────────
+    showNotif(type, title, message) {
+      this.notification = { show: true, type, title, message };
+      setTimeout(() => { this.notification.show = false; }, 5000);
+    },
+
+    // ── Navegación ────────────────────────────────────────────
+    goTo(v) {
+      this.view = v;
+      if (v === 'history') this.loadHistory();
+      if (v === 'dashboard') this.loadDashboard();
+      if (v === 'create') {
+        this.createForm = { type: 'text_only', text: '', imageFile: null, imagePreview: null, imageUrl: null, uploadingImage: false };
+      }
+      this.stopPolling();
+    },
+
+    // ── Dashboard ─────────────────────────────────────────────
+    async loadDashboard() {
+      this.loadingDashboard = true;
+      try {
+        const data = await this.api('/lk/get-drafts?status=all&limit=9');
+        this.posts = data.posts || [];
+        this.ideas = data.ideas || [];
+        this.stats.total = data.total || this.posts.length;
+        this.stats.published = this.posts.filter(p => p.status === 'published').length;
+        this.stats.drafts = this.posts.filter(p => p.status === 'draft').length;
+      } catch (e) {
+        this.showNotif('error', 'Error al cargar', e.message);
+      } finally {
+        this.loadingDashboard = false;
+      }
+    },
+
+    useIdea(idea) {
+      this.createForm.type = 'brief';
+      this.createForm.text = idea.title + '\n\n' + (idea.description || '');
+      this.goTo('create');
+    },
+
+    // ── Crear post ────────────────────────────────────────────
+    async handleImageSelect(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+      if (file.size > 5 * 1024 * 1024) {
+        this.showNotif('error', 'Imagen demasiado grande', 'Máximo 5MB permitidos');
+        return;
+      }
+      this.createForm.imageFile = file;
+      const reader = new FileReader();
+      reader.onload = (e) => { this.createForm.imagePreview = e.target.result; };
+      reader.readAsDataURL(file);
+      // Upload a Supabase Storage
+      this.createForm.uploadingImage = true;
+      try {
+        const filename = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.]/g, '-')}`;
+        const formData = new FormData();
+        formData.append('', file);
+        const res = await fetch(
+          `${CONFIG.SUPABASE_URL}/storage/v1/object/${CONFIG.STORAGE_BUCKET}/${filename}`,
+          {
+            method: 'POST',
+            headers: { apikey: CONFIG.SUPABASE_ANON_KEY, Authorization: `Bearer ${CONFIG.SUPABASE_ANON_KEY}` },
+            body: formData,
+          }
+        );
+        if (!res.ok) throw new Error('Upload fallido');
+        this.createForm.imageUrl = `${CONFIG.SUPABASE_URL}/storage/v1/object/public/${CONFIG.STORAGE_BUCKET}/${filename}`;
+      } catch (e) {
+        this.showNotif('error', 'Error al subir imagen', e.message);
+      } finally {
+        this.createForm.uploadingImage = false;
+      }
+    },
+
+    handleDrop(event) {
+      const file = event.dataTransfer.files[0];
+      if (file && file.type.startsWith('image/')) {
+        const fakeEvent = { target: { files: [file] } };
+        this.handleImageSelect(fakeEvent);
+      }
+    },
+
+    async generatePost() {
+      if (this.createForm.text.trim().length < 10) return;
+      this.creating = true;
+      try {
+        const payload = {
+          input_type: this.createForm.type,
+          input_text: this.createForm.text.trim(),
+          uploaded_image_url: this.createForm.imageUrl || null,
+        };
+        const data = await this.api('/lk/generate-post', 'POST', payload);
+        if (!data.success) throw new Error(data.error || 'Generación fallida');
+        // Cargar el post creado para editar
+        const mockPost = { id: data.post_id, versions: data.versions, input_type: this.createForm.type, status: 'draft', uploaded_image_url: this.createForm.imageUrl };
+        this.openEdit(mockPost);
+        this.showNotif('success', '¡Versiones generadas!', '3 versiones listas para editar');
+      } catch (e) {
+        this.showNotif('error', 'Error al generar', e.message);
+      } finally {
+        this.creating = false;
+      }
+    },
+
+    // ── Editar post ───────────────────────────────────────────
+    openEdit(post) {
+      this.currentPost = post;
+      const v = post.selected_version || 1;
+      const version = this.getVersionObj(post, v);
+      this.editState = {
+        selectedVersion: v,
+        hook: post.final_hook || version?.hook || '',
+        body: post.final_body || version?.body || '',
+        cta: post.final_cta || version?.cta || '',
+        hashtags: post.final_hashtags || version?.hashtags || [],
+        newHashtag: '',
+        pinned_comment: post.final_pinned_comment || version?.pinned_comment || '',
+        selectedImage: post.selected_image_url || null,
+        autoSaveStatus: '',
+      };
+      this.imageState.prompt = '';
+      this.view = 'edit';
+      // Iniciar polling si hay imagen pendiente
+      if (post.image_status === 'pending') this.startPolling();
+    },
+
+    selectVersion(n) {
+      this.editState.selectedVersion = n;
+      const version = this.getVersionObj(this.currentPost, n);
+      if (version) {
+        this.editState.hook = version.hook || '';
+        this.editState.body = version.body || '';
+        this.editState.cta = version.cta || '';
+        this.editState.hashtags = [...(version.hashtags || [])];
+        this.editState.pinned_comment = version.pinned_comment || '';
+      }
+      this.scheduleAutoSave();
+    },
+
+    getVersionObj(post, n) {
+      if (!post?.versions) return null;
+      const versions = Array.isArray(post.versions) ? post.versions : JSON.parse(post.versions);
+      return versions.find(v => v.version === n) || versions[n - 1] || null;
+    },
+
+    getVersionHook(n) {
+      return this.getVersionObj(this.currentPost, n)?.hook || '';
+    },
+
+    versionAngle(n) {
+      return ['Problema', 'Solución', 'Historia'][n - 1] || '';
+    },
+
+    addHashtag() {
+      const tag = this.editState.newHashtag.trim().replace(/^#/, '');
+      if (tag && !this.editState.hashtags.includes(tag)) {
+        this.editState.hashtags.push(tag);
+      }
+      this.editState.newHashtag = '';
+      this.scheduleAutoSave();
+    },
+
+    removeHashtag(i) {
+      this.editState.hashtags.splice(i, 1);
+      this.scheduleAutoSave();
+    },
+
+    scheduleAutoSave() {
+      if (this.autoSaveTimer) clearTimeout(this.autoSaveTimer);
+      this.editState.autoSaveStatus = '...guardando';
+      this.autoSaveTimer = setTimeout(() => this.saveDraft(), 2000);
+    },
+
+    async saveDraft() {
+      if (!this.currentPost?.id) return;
+      this.saving = true;
+      try {
+        await this.api('/lk/update-draft', 'POST', {
+          post_id: this.currentPost.id,
+          updates: {
+            selected_version: this.editState.selectedVersion,
+            final_hook: this.editState.hook,
+            final_body: this.editState.body,
+            final_cta: this.editState.cta,
+            final_hashtags: this.editState.hashtags,
+            final_pinned_comment: this.editState.pinned_comment,
+            selected_image_url: this.editState.selectedImage,
+          },
+        });
+        this.editState.autoSaveStatus = 'Guardado ✓';
+        setTimeout(() => { this.editState.autoSaveStatus = ''; }, 2000);
+      } catch (e) {
+        this.editState.autoSaveStatus = 'Error al guardar';
+        this.showNotif('error', 'Error al guardar', e.message);
+      } finally {
+        this.saving = false;
+      }
+    },
+
+    selectImage(url) {
+      this.editState.selectedImage = url;
+      this.scheduleAutoSave();
+    },
+
+    async generateImages(taskType) {
+      if (!this.imageState.prompt && taskType === 'generate') return;
+      this.imageState.generating = true;
+      try {
+        const data = await this.api('/lk/generate-images', 'POST', {
+          post_id: this.currentPost.id,
+          task_type: taskType,
+          prompt: this.imageState.prompt,
+          uploaded_image_url: this.currentPost.uploaded_image_url || null,
+        });
+        if (data.success) {
+          this.currentPost = { ...this.currentPost, image_status: 'pending' };
+          this.startPolling();
+          this.showNotif('success', 'Generando imagen', 'Listo en 30-90 segundos');
+        }
+      } catch (e) {
+        this.showNotif('error', 'Error al generar imagen', e.message);
+      } finally {
+        this.imageState.generating = false;
+      }
+    },
+
+    resetImageState() {
+      this.currentPost = { ...this.currentPost, image_status: 'none', image_option_1: null, image_option_2: null };
+    },
+
+    startPolling() {
+      this.stopPolling();
+      this.pollingTimer = setInterval(() => this.pollImageStatus(), 10000); // cada 10s
+    },
+
+    stopPolling() {
+      if (this.pollingTimer) { clearInterval(this.pollingTimer); this.pollingTimer = null; }
+    },
+
+    async pollImageStatus() {
+      try {
+        const data = await this.api(`/lk/get-drafts?status=all&limit=50`);
+        const updated = (data.posts || []).find(p => p.id === this.currentPost?.id);
+        if (updated && updated.image_status !== 'pending') {
+          this.currentPost = updated;
+          this.stopPolling();
+          if (updated.image_status === 'ready') {
+            this.showNotif('success', '¡Imagen lista!', 'Elige entre las 2 opciones generadas');
+          }
+        }
+      } catch (e) { /* silencioso */ }
+    },
+
+    // ── Preview ───────────────────────────────────────────────
+    openPreview(post) {
+      this.currentPost = post;
+      // Sincronizar editState con el post si no estábamos editando
+      if (!this.editState.hook && post) {
+        const v = post.selected_version || 1;
+        const version = this.getVersionObj(post, v);
+        this.editState = {
+          selectedVersion: v,
+          hook: post.final_hook || version?.hook || '',
+          body: post.final_body || version?.body || '',
+          cta: post.final_cta || version?.cta || '',
+          hashtags: post.final_hashtags || version?.hashtags || [],
+          newHashtag: '',
+          pinned_comment: post.final_pinned_comment || version?.pinned_comment || '',
+          selectedImage: post.selected_image_url || null,
+          autoSaveStatus: '',
+        };
+      }
+      this.publishedUrl = '';
+      this.view = 'preview';
+    },
+
+    getPreviewText() {
+      return (this.editState.hook || '') + '\n\n' + (this.editState.body || '') + '\n\n' + (this.editState.cta || '');
+    },
+
+    getPreviewHashtags() {
+      return this.editState.hashtags || [];
+    },
+
+    getPreviewPinnedComment() {
+      return this.editState.pinned_comment || '';
+    },
+
+    async copyFullPost() {
+      const text = this.getPreviewText() + '\n\n' +
+        this.getPreviewHashtags().map(h => '#' + h).join(' ');
+      await navigator.clipboard.writeText(text);
+      this.showNotif('success', 'Copiado', 'Texto del post copiado al portapapeles');
+    },
+
+    async markPublished() {
+      if (!this.currentPost?.id) return;
+      this.markingPublished = true;
+      try {
+        const data = await this.api('/lk/mark-published', 'POST', {
+          post_id: this.currentPost.id,
+          linkedin_url: this.publishedUrl || null,
+        });
+        this.currentPost = data.post;
+        this.showNotif('success', '¡Post publicado!', 'Registrado en el historial');
+      } catch (e) {
+        this.showNotif('error', 'Error', e.message);
+      } finally {
+        this.markingPublished = false;
+      }
+    },
+
+    // ── History ───────────────────────────────────────────────
+    async loadHistory() {
+      this.loadingHistory = true;
+      try {
+        const qs = `status=${this.historyFilter}&page=${this.historyPage}&limit=${this.historyLimit}`;
+        const data = await this.api(`/lk/get-drafts?${qs}`);
+        this.historyPosts = data.posts || [];
+        this.historyTotal = data.total || 0;
+      } catch (e) {
+        this.showNotif('error', 'Error al cargar historial', e.message);
+      } finally {
+        this.loadingHistory = false;
+      }
+    },
+
+    filteredHistoryPosts() {
+      if (!this.historySearch) return this.historyPosts;
+      const q = this.historySearch.toLowerCase();
+      return this.historyPosts.filter(p =>
+        (this.getHook(p) || '').toLowerCase().includes(q) ||
+        (p.input_text || '').toLowerCase().includes(q)
+      );
+    },
+
+    // ── Settings ──────────────────────────────────────────────
+    async loadSettingsFromSupabase() {
+      try {
+        const res = await fetch(
+          `${CONFIG.SUPABASE_URL}/rest/v1/settings?id=eq.1&select=author_name,author_title,brand_keywords,kieai_api_key,ideas_per_day`,
+          { headers: { apikey: CONFIG.SUPABASE_ANON_KEY, Authorization: `Bearer ${CONFIG.SUPABASE_ANON_KEY}` } }
+        );
+        const rows = await res.json();
+        if (rows && rows[0]) {
+          const s = rows[0];
+          this.settings.author_name = s.author_name || '';
+          this.settings.author_title = s.author_title || '';
+          this.settings.brand_keywords = s.brand_keywords || [];
+          this.settings.kieai_api_key = s.kieai_api_key || '';
+          this.settings.ideas_per_day = s.ideas_per_day || 5;
+        }
+      } catch (e) { /* sin settings, usar defaults */ }
+    },
+
+    async saveSettings() {
+      this.savingSettings = true;
+      try {
+        const res = await fetch(
+          `${CONFIG.SUPABASE_URL}/rest/v1/settings?id=eq.1`,
+          {
+            method: 'PATCH',
+            headers: {
+              apikey: CONFIG.SUPABASE_ANON_KEY,
+              Authorization: `Bearer ${CONFIG.SUPABASE_ANON_KEY}`,
+              'Content-Type': 'application/json',
+              Prefer: 'return=minimal',
+            },
+            body: JSON.stringify({
+              author_name: this.settings.author_name,
+              author_title: this.settings.author_title,
+              brand_keywords: this.settings.brand_keywords,
+              kieai_api_key: this.settings.kieai_api_key,
+              ideas_per_day: parseInt(this.settings.ideas_per_day),
+            }),
+          }
+        );
+        if (!res.ok) throw new Error('Error al guardar');
+        this.showNotif('success', 'Configuración guardada', 'Los cambios ya están activos');
+      } catch (e) {
+        this.showNotif('error', 'Error al guardar', e.message);
+      } finally {
+        this.savingSettings = false;
+      }
+    },
+
+    // ── Helpers ───────────────────────────────────────────────
+    getHook(post) {
+      if (post.final_hook) return post.final_hook;
+      if (!post.versions) return '';
+      const versions = Array.isArray(post.versions) ? post.versions : (typeof post.versions === 'string' ? JSON.parse(post.versions) : post.versions);
+      const v = versions.find(v => v.version === (post.selected_version || 1)) || versions[0];
+      return v?.hook || '';
+    },
+
+    statusLabel(status) {
+      return { draft: 'Borrador', approved: 'Aprobado', published: 'Publicado', failed: 'Error' }[status] || status;
+    },
+
+    statusBadgeClass(status) {
+      return {
+        draft: 'bg-gray-100 text-gray-600',
+        approved: 'bg-blue-100 text-blue-700',
+        published: 'bg-green-100 text-green-700',
+        failed: 'bg-red-100 text-red-600',
+      }[status] || 'bg-gray-100 text-gray-600';
+    },
+
+    inputTypeLabel(t) {
+      return { text_only: '✍️ Solo texto', text_photo: '📷 Texto + foto', brief: '💡 Idea breve' }[t] || '';
+    },
+
+    formatDate(dateStr) {
+      if (!dateStr) return '';
+      const d = new Date(dateStr);
+      return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+    },
+  };
+}
+</script>
+
+</body>
+</html>
