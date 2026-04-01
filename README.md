@@ -40,16 +40,44 @@ Abrir la app > pestaña **Config** y rellenar:
 
 ---
 
+## App en vivo
+
+**URL**: https://pineirobellasanton.github.io/linkedin-content-studio/
+
 ## Workflows n8n activos
 
-| Workflow | Webhook | Estado |
-|---|---|---|
-| [LK] Get Drafts & History | GET /lk/get-drafts | ✅ Activo |
-| [LK] Generate Post Content | POST /lk/generate-post | ✅ Activo |
-| [LK] Update Draft | POST /lk/update-draft | ✅ Activo |
-| [LK] Mark Published | POST /lk/mark-published | ✅ Activo |
-| [LK] Generate Images | POST /lk/generate-images | ✅ Activo |
-| [LK] Generate Ideas | Cron 7AM UTC diario | ✅ Activo |
+| Workflow | ID n8n | Endpoint | Estado |
+|---|---|---|---|
+| [LK] Get Drafts & History | SDgpFUjZeFzvmyde | GET /lk/get-drafts | ✅ Activo |
+| [LK] Generate Post Content | AixZsTjewNbSBnzA | POST /lk/generate-post | ✅ Activo |
+| [LK] Update Draft | H5yJUVQK3b3myMLW | POST /lk/update-draft | ✅ Activo |
+| [LK] Mark Published | SBV0JacQqCewsit7 | POST /lk/mark-published | ✅ Activo |
+| [LK] Generate Images | 72ARI9FMtPt7ppXd | POST /lk/generate-images | ✅ Activo |
+| [LK] Poll Image Tasks | Vdbu0ljkv1ys9vvn | Schedule 1 min | ✅ Activo |
+| [LK] Generate Ideas | OPsJkWCbi2YLvGNp | Cron 7AM UTC | ✅ Activo |
+
+## ⚠️ Pasos manuales pendientes
+
+### 1. Variables de entorno en n8n (obligatorio)
+Settings → Environment Variables → añadir:
+```
+SUPABASE_URL=https://xxxx.supabase.co
+SUPABASE_ANON_KEY=eyJhbGci...
+APP_TOKEN=tu-token-secreto-aqui
+```
+
+### 2. Credencial OpenAI en workflows (obligatorio)
+Abrir en n8n UI:
+- Workflow **[LK] Generate Post Content** → nodo "Call OpenAI GPT-4o" → asignar credencial "OpenAi account 2"
+- Workflow **[LK] Generate Ideas** → nodo "Call OpenAI for Ideas" → asignar credencial "OpenAi account 2"
+
+### 3. Crear proyecto Supabase
+1. Crear proyecto en supabase.com
+2. SQL Editor → ejecutar `supabase/schema.sql`
+3. Storage → crear bucket público `post-images`
+
+### 4. Configurar la app
+Abrir la app → pestaña **Config** → rellenar todos los campos de conexión
 
 ## Stack
 - **Frontend**: HTML + Alpine.js + Tailwind CSS (zero build)
