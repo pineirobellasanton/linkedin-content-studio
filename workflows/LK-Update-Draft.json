@@ -1,0 +1,345 @@
+{
+  "updatedAt": "2026-03-31T20:17:59.711Z",
+  "createdAt": "2026-03-31T20:17:59.711Z",
+  "id": "H5yJUVQK3b3myMLW",
+  "name": "[LK] Update Draft",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "id": "node-whb-1",
+      "name": "Receive Update",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "path": "lk/update-draft",
+        "httpMethod": "POST",
+        "responseMode": "lastNode"
+      },
+      "webhookId": "lk-update-draft"
+    },
+    {
+      "id": "node-whb-2",
+      "name": "Sanitize & Validate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nif (!body.post_id) throw new Error('post_id requerido');\n\nconst allowed = ['selected_version','final_hook','final_body','final_cta','final_hashtags','final_pinned_comment','selected_image_url','status'];\nconst updates = body.updates || {};\nconst sanitized = {};\n\nfor (const key of allowed) {\n  if (updates[key] !== undefined && updates[key] !== null) {\n    sanitized[key] = updates[key];\n  }\n}\n\nif (sanitized.status && !['draft','approved','published'].includes(sanitized.status)) {\n  throw new Error('status inválido');\n}\n\nif (Object.keys(sanitized).length === 0) {\n  throw new Error('No hay campos válidos para actualizar');\n}\n\nreturn [{\n  json: {\n    post_id: body.post_id,\n    sanitized_updates: sanitized\n  }\n}];"
+      }
+    },
+    {
+      "id": "node-whb-3",
+      "name": "PATCH Post in Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/posts?id=eq.{{ $json.post_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_ANON_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_ANON_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": "={{ JSON.stringify($json.sanitized_updates) }}"
+      }
+    },
+    {
+      "id": "node-whb-4",
+      "name": "Build Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const updated = Array.isArray($input.first().json) ? $input.first().json[0] : $input.first().json;\nreturn [{ json: { success: true, post: updated } }];"
+      }
+    },
+    {
+      "id": "node-whb-5",
+      "name": "Return Updated Post",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}"
+      }
+    }
+  ],
+  "connections": {
+    "Receive Update": {
+      "main": [
+        [
+          {
+            "node": "Sanitize & Validate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Sanitize & Validate": {
+      "main": [
+        [
+          {
+            "node": "PATCH Post in Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "PATCH Post in Supabase": {
+      "main": [
+        [
+          {
+            "node": "Build Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Response": {
+      "main": [
+        [
+          {
+            "node": "Return Updated Post",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": null,
+  "versionId": "2187092b-7475-4eba-b4ef-b86e4e8e70da",
+  "activeVersionId": "2187092b-7475-4eba-b4ef-b86e4e8e70da",
+  "versionCounter": 3,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-03-31T20:17:59.716Z",
+      "createdAt": "2026-03-31T20:17:59.716Z",
+      "role": "workflow:owner",
+      "workflowId": "H5yJUVQK3b3myMLW",
+      "projectId": "0A2r46jIiDdsUxMV",
+      "project": {
+        "updatedAt": "2026-03-17T22:13:08.914Z",
+        "createdAt": "2026-03-17T22:12:37.916Z",
+        "id": "0A2r46jIiDdsUxMV",
+        "name": "Antón Piñeiro <pineirobellasanton@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "84bcaed9-b4e7-4f27-9d34-93fb75581f76"
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": {
+    "updatedAt": "2026-03-31T20:17:59.720Z",
+    "createdAt": "2026-03-31T20:17:59.720Z",
+    "versionId": "2187092b-7475-4eba-b4ef-b86e4e8e70da",
+    "workflowId": "H5yJUVQK3b3myMLW",
+    "nodes": [
+      {
+        "id": "node-whb-1",
+        "name": "Receive Update",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "path": "lk/update-draft",
+          "httpMethod": "POST",
+          "responseMode": "lastNode"
+        },
+        "webhookId": "lk-update-draft"
+      },
+      {
+        "id": "node-whb-2",
+        "name": "Sanitize & Validate",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          220,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const body = $input.first().json.body || $input.first().json;\nif (!body.post_id) throw new Error('post_id requerido');\n\nconst allowed = ['selected_version','final_hook','final_body','final_cta','final_hashtags','final_pinned_comment','selected_image_url','status'];\nconst updates = body.updates || {};\nconst sanitized = {};\n\nfor (const key of allowed) {\n  if (updates[key] !== undefined && updates[key] !== null) {\n    sanitized[key] = updates[key];\n  }\n}\n\nif (sanitized.status && !['draft','approved','published'].includes(sanitized.status)) {\n  throw new Error('status inválido');\n}\n\nif (Object.keys(sanitized).length === 0) {\n  throw new Error('No hay campos válidos para actualizar');\n}\n\nreturn [{\n  json: {\n    post_id: body.post_id,\n    sanitized_updates: sanitized\n  }\n}];"
+        }
+      },
+      {
+        "id": "node-whb-3",
+        "name": "PATCH Post in Supabase",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          440,
+          0
+        ],
+        "parameters": {
+          "method": "PATCH",
+          "url": "={{ $env.SUPABASE_URL }}/rest/v1/posts?id=eq.{{ $json.post_id }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "apikey",
+                "value": "={{ $env.SUPABASE_ANON_KEY }}"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{ $env.SUPABASE_ANON_KEY }}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Prefer",
+                "value": "return=representation"
+              }
+            ]
+          },
+          "sendBody": true,
+          "contentType": "json",
+          "body": "={{ JSON.stringify($json.sanitized_updates) }}"
+        }
+      },
+      {
+        "id": "node-whb-4",
+        "name": "Build Response",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          660,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const updated = Array.isArray($input.first().json) ? $input.first().json[0] : $input.first().json;\nreturn [{ json: { success: true, post: updated } }];"
+        }
+      },
+      {
+        "id": "node-whb-5",
+        "name": "Return Updated Post",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.1,
+        "position": [
+          880,
+          0
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}"
+        }
+      }
+    ],
+    "connections": {
+      "Receive Update": {
+        "main": [
+          [
+            {
+              "node": "Sanitize & Validate",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Sanitize & Validate": {
+        "main": [
+          [
+            {
+              "node": "PATCH Post in Supabase",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "PATCH Post in Supabase": {
+        "main": [
+          [
+            {
+              "node": "Build Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Response": {
+        "main": [
+          [
+            {
+              "node": "Return Updated Post",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "authors": "Antón Piñeiro",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-03-31T20:18:50.209Z",
+        "id": 197,
+        "workflowId": "H5yJUVQK3b3myMLW",
+        "versionId": "2187092b-7475-4eba-b4ef-b86e4e8e70da",
+        "event": "activated",
+        "userId": "84bcaed9-b4e7-4f27-9d34-93fb75581f76"
+      }
+    ]
+  }
+}

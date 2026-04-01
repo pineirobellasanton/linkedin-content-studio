@@ -1,0 +1,651 @@
+{
+  "updatedAt": "2026-04-01T06:19:25.444Z",
+  "createdAt": "2026-03-31T20:17:59.542Z",
+  "id": "AixZsTjewNbSBnzA",
+  "name": "[LK] Generate Post Content",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "id": "node-wha-1",
+      "name": "Receive Generate Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "path": "lk/generate-post",
+        "httpMethod": "POST",
+        "responseMode": "lastNode"
+      },
+      "webhookId": "lk-generate-post"
+    },
+    {
+      "id": "node-wha-2",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst validTypes = ['text_only','text_photo','brief'];\nconst inputType = body.input_type || 'text_only';\nif (!validTypes.includes(inputType)) {\n  throw new Error('input_type inválido. Debe ser: text_only, text_photo, o brief');\n}\nconst inputText = (body.input_text || '').trim();\nif (inputText.length < 5) {\n  throw new Error('input_text demasiado corto (mínimo 5 caracteres)');\n}\nreturn [{\n  json: {\n    input_type: inputType,\n    input_text: inputText,\n    uploaded_image_url: body.uploaded_image_url || null\n  }\n}];"
+      }
+    },
+    {
+      "id": "node-wha-3",
+      "name": "Fetch Author Settings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/settings?id=eq.1&select=author_name,author_title,brand_keywords",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_ANON_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_ANON_KEY }}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "node-wha-4",
+      "name": "Build OpenAI Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const input = $node[\"Validate Input\"].json;\nconst settingsArr = $node[\"Fetch Author Settings\"].json;\nconst settings = Array.isArray(settingsArr) ? settingsArr[0] : settingsArr;\n\nconst authorName = settings?.author_name || 'Profesional';\nconst authorTitle = settings?.author_title || 'Consultor de Formación B2B';\nconst brandKeywords = (settings?.brand_keywords || ['formación','aprendizaje','equipos']).join(', ');\n\nconst systemPrompt = `Eres un experto en contenido LinkedIn para empresas de formación empresarial B2B en España.\n\nCONTEXTO DEL AUTOR:\n- Nombre: ${authorName}\n- Cargo: ${authorTitle}\n- Sector: Formación empresarial B2B (formación in-company, microlearning, competencias directivas)\n- Palabras clave de marca: ${brandKeywords}\n\nTONO Y ESTILO:\n- Profesional pero cercano, como un experto de confianza (no un comercial)\n- Español peninsular natural, sin frases corporativas vacías\n- Evitar: \"En el mundo actual\", \"Es clave destacar\", anglicismos innecesarios\n- Usar: datos concretos, preguntas retóricas, analogías simples, experiencias reales\n\nESTRUCTURA POR VERSIÓN:\n- hook: Primera línea impactante (máx 150 chars) — para el scroll\n- body: Desarrollo (300-500 palabras), párrafos cortos, espacios entre ellos\n- cta: Llamada a la acción (máx 100 chars)\n- hashtags: Array de 5-7 strings SIN # (mix amplio+específico)\n- pinned_comment: Primer comentario a fijar (100-200 palabras)\n\nDIFERENCIACIÓN entre versiones:\n- Versión 1: Ángulo PROBLEMA (pain point del lector)\n- Versión 2: Ángulo SOLUCIÓN/RESULTADO (beneficio tangible)\n- Versión 3: Ángulo HISTORIA/EXPERIENCIA (caso real o anécdota)\n\nIMPORTANTE: Responde SOLO con JSON válido, sin markdown, con exactamente esta estructura:\n{\"versions\":[{\"version\":1,\"hook\":\"...\",\"body\":\"...\",\"cta\":\"...\",\"hashtags\":[\"tag1\",\"tag2\"],\"pinned_comment\":\"...\"},{\"version\":2,...},{\"version\":3,...}]}`;\n\nlet userPrompt = '';\nif (input.input_type === 'brief') {\n  userPrompt = `Crea 3 versiones de publicación LinkedIn sobre este tema:\\n\\n${input.input_text}\\n\\nGenera los 3 ángulos (problema, solución, historia) bien diferenciados.`;\n} else if (input.input_type === 'text_photo') {\n  userPrompt = `Crea 3 versiones de publicación LinkedIn sobre:\\n\\n${input.input_text}\\n\\nCONTEXTO: El post irá acompañado de una fotografía del autor. El texto debe complementar la imagen sin describirla. El CTA puede referenciar la imagen sutilmente.`;\n} else {\n  userPrompt = `Crea 3 versiones de publicación LinkedIn a partir de este texto:\\n\\n${input.input_text}\\n\\nAdapta el contenido manteniendo la esencia, optimizando para LinkedIn.`;\n}\n\nreturn [{\n  json: {\n    system_prompt: systemPrompt,\n    user_prompt: userPrompt,\n    input_type: input.input_type,\n    input_text: input.input_text,\n    uploaded_image_url: input.uploaded_image_url\n  }\n}];"
+      }
+    },
+    {
+      "id": "node-wha-5",
+      "name": "Call OpenAI GPT-4o",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        0
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": false,
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "model": "gpt-4o",
+          "temperature": 0.8,
+          "max_tokens": 3500,
+          "response_format": {
+            "type": "json_object"
+          },
+          "messages": [
+            {
+              "role": "system",
+              "content": "={{ $json.system_prompt }}"
+            },
+            {
+              "role": "user",
+              "content": "={{ $json.user_prompt }}"
+            }
+          ]
+        },
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi"
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "aSPj5MdeJia8H0O2",
+          "name": "pineirobellas"
+        }
+      }
+    },
+    {
+      "id": "node-wha-6",
+      "name": "Parse & Validate Versions",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const openaiResponse = $input.first().json;\nconst inputData = $node[\"Build OpenAI Prompt\"].json;\n\nlet versions = [];\ntry {\n  const content = openaiResponse.choices[0].message.content;\n  const parsed = JSON.parse(content);\n  versions = parsed.versions || [];\n} catch(e) {\n  throw new Error('OpenAI no devolvió JSON válido: ' + e.message);\n}\n\nif (!versions || versions.length === 0) {\n  throw new Error('OpenAI no generó versiones');\n}\n\nconst requiredFields = ['hook','body','cta','hashtags','pinned_comment'];\nversions = versions.map((v, i) => {\n  const validated = { version: v.version || (i+1) };\n  for (const field of requiredFields) {\n    validated[field] = v[field] || (field === 'hashtags' ? [] : '');\n  }\n  return validated;\n});\n\nreturn [{\n  json: {\n    versions,\n    input_type: inputData.input_type,\n    input_text: inputData.input_text,\n    uploaded_image_url: inputData.uploaded_image_url\n  }\n}];"
+      }
+    },
+    {
+      "id": "node-wha-7",
+      "name": "Save Draft to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        0
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/posts",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_ANON_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_ANON_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "input_type": "={{ $json.input_type }}",
+          "input_text": "={{ $json.input_text }}",
+          "versions": "={{ JSON.stringify($json.versions) }}",
+          "uploaded_image_url": "={{ $json.uploaded_image_url }}",
+          "status": "draft",
+          "selected_version": 1
+        }
+      }
+    },
+    {
+      "id": "node-wha-8",
+      "name": "Build Success Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const savedPost = Array.isArray($input.first().json) ? $input.first().json[0] : $input.first().json;\nconst versions = $node[\"Parse & Validate Versions\"].json.versions;\n\nreturn [{\n  json: {\n    success: true,\n    post_id: savedPost.id || null,\n    versions: versions\n  }\n}];"
+      }
+    },
+    {
+      "id": "node-wha-9",
+      "name": "Return Versions",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1760,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}"
+      }
+    }
+  ],
+  "connections": {
+    "Receive Generate Request": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Fetch Author Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Author Settings": {
+      "main": [
+        [
+          {
+            "node": "Build OpenAI Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build OpenAI Prompt": {
+      "main": [
+        [
+          {
+            "node": "Call OpenAI GPT-4o",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call OpenAI GPT-4o": {
+      "main": [
+        [
+          {
+            "node": "Parse & Validate Versions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Validate Versions": {
+      "main": [
+        [
+          {
+            "node": "Save Draft to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Draft to Supabase": {
+      "main": [
+        [
+          {
+            "node": "Build Success Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Success Response": {
+      "main": [
+        [
+          {
+            "node": "Return Versions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": null,
+  "versionId": "284583fb-ab95-4e80-b554-433fd6ead4d8",
+  "activeVersionId": "284583fb-ab95-4e80-b554-433fd6ead4d8",
+  "versionCounter": 6,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-03-31T20:17:59.545Z",
+      "createdAt": "2026-03-31T20:17:59.545Z",
+      "role": "workflow:owner",
+      "workflowId": "AixZsTjewNbSBnzA",
+      "projectId": "0A2r46jIiDdsUxMV",
+      "project": {
+        "updatedAt": "2026-03-17T22:13:08.914Z",
+        "createdAt": "2026-03-17T22:12:37.916Z",
+        "id": "0A2r46jIiDdsUxMV",
+        "name": "Antón Piñeiro <pineirobellasanton@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "84bcaed9-b4e7-4f27-9d34-93fb75581f76"
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": {
+    "updatedAt": "2026-04-01T06:19:25.446Z",
+    "createdAt": "2026-04-01T06:19:25.446Z",
+    "versionId": "284583fb-ab95-4e80-b554-433fd6ead4d8",
+    "workflowId": "AixZsTjewNbSBnzA",
+    "nodes": [
+      {
+        "id": "node-wha-1",
+        "name": "Receive Generate Request",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "path": "lk/generate-post",
+          "httpMethod": "POST",
+          "responseMode": "lastNode"
+        },
+        "webhookId": "lk-generate-post"
+      },
+      {
+        "id": "node-wha-2",
+        "name": "Validate Input",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          220,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const body = $input.first().json.body || $input.first().json;\nconst validTypes = ['text_only','text_photo','brief'];\nconst inputType = body.input_type || 'text_only';\nif (!validTypes.includes(inputType)) {\n  throw new Error('input_type inválido. Debe ser: text_only, text_photo, o brief');\n}\nconst inputText = (body.input_text || '').trim();\nif (inputText.length < 5) {\n  throw new Error('input_text demasiado corto (mínimo 5 caracteres)');\n}\nreturn [{\n  json: {\n    input_type: inputType,\n    input_text: inputText,\n    uploaded_image_url: body.uploaded_image_url || null\n  }\n}];"
+        }
+      },
+      {
+        "id": "node-wha-3",
+        "name": "Fetch Author Settings",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          440,
+          0
+        ],
+        "parameters": {
+          "method": "GET",
+          "url": "={{ $env.SUPABASE_URL }}/rest/v1/settings?id=eq.1&select=author_name,author_title,brand_keywords",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "apikey",
+                "value": "={{ $env.SUPABASE_ANON_KEY }}"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{ $env.SUPABASE_ANON_KEY }}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "node-wha-4",
+        "name": "Build OpenAI Prompt",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          660,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const input = $node[\"Validate Input\"].json;\nconst settingsArr = $node[\"Fetch Author Settings\"].json;\nconst settings = Array.isArray(settingsArr) ? settingsArr[0] : settingsArr;\n\nconst authorName = settings?.author_name || 'Profesional';\nconst authorTitle = settings?.author_title || 'Consultor de Formación B2B';\nconst brandKeywords = (settings?.brand_keywords || ['formación','aprendizaje','equipos']).join(', ');\n\nconst systemPrompt = `Eres un experto en contenido LinkedIn para empresas de formación empresarial B2B en España.\n\nCONTEXTO DEL AUTOR:\n- Nombre: ${authorName}\n- Cargo: ${authorTitle}\n- Sector: Formación empresarial B2B (formación in-company, microlearning, competencias directivas)\n- Palabras clave de marca: ${brandKeywords}\n\nTONO Y ESTILO:\n- Profesional pero cercano, como un experto de confianza (no un comercial)\n- Español peninsular natural, sin frases corporativas vacías\n- Evitar: \"En el mundo actual\", \"Es clave destacar\", anglicismos innecesarios\n- Usar: datos concretos, preguntas retóricas, analogías simples, experiencias reales\n\nESTRUCTURA POR VERSIÓN:\n- hook: Primera línea impactante (máx 150 chars) — para el scroll\n- body: Desarrollo (300-500 palabras), párrafos cortos, espacios entre ellos\n- cta: Llamada a la acción (máx 100 chars)\n- hashtags: Array de 5-7 strings SIN # (mix amplio+específico)\n- pinned_comment: Primer comentario a fijar (100-200 palabras)\n\nDIFERENCIACIÓN entre versiones:\n- Versión 1: Ángulo PROBLEMA (pain point del lector)\n- Versión 2: Ángulo SOLUCIÓN/RESULTADO (beneficio tangible)\n- Versión 3: Ángulo HISTORIA/EXPERIENCIA (caso real o anécdota)\n\nIMPORTANTE: Responde SOLO con JSON válido, sin markdown, con exactamente esta estructura:\n{\"versions\":[{\"version\":1,\"hook\":\"...\",\"body\":\"...\",\"cta\":\"...\",\"hashtags\":[\"tag1\",\"tag2\"],\"pinned_comment\":\"...\"},{\"version\":2,...},{\"version\":3,...}]}`;\n\nlet userPrompt = '';\nif (input.input_type === 'brief') {\n  userPrompt = `Crea 3 versiones de publicación LinkedIn sobre este tema:\\n\\n${input.input_text}\\n\\nGenera los 3 ángulos (problema, solución, historia) bien diferenciados.`;\n} else if (input.input_type === 'text_photo') {\n  userPrompt = `Crea 3 versiones de publicación LinkedIn sobre:\\n\\n${input.input_text}\\n\\nCONTEXTO: El post irá acompañado de una fotografía del autor. El texto debe complementar la imagen sin describirla. El CTA puede referenciar la imagen sutilmente.`;\n} else {\n  userPrompt = `Crea 3 versiones de publicación LinkedIn a partir de este texto:\\n\\n${input.input_text}\\n\\nAdapta el contenido manteniendo la esencia, optimizando para LinkedIn.`;\n}\n\nreturn [{\n  json: {\n    system_prompt: systemPrompt,\n    user_prompt: userPrompt,\n    input_type: input.input_type,\n    input_text: input.input_text,\n    uploaded_image_url: input.uploaded_image_url\n  }\n}];"
+        }
+      },
+      {
+        "id": "node-wha-5",
+        "name": "Call OpenAI GPT-4o",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          880,
+          0
+        ],
+        "continueOnFail": true,
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.openai.com/v1/chat/completions",
+          "sendHeaders": false,
+          "sendBody": true,
+          "contentType": "json",
+          "body": {
+            "model": "gpt-4o",
+            "temperature": 0.8,
+            "max_tokens": 3500,
+            "response_format": {
+              "type": "json_object"
+            },
+            "messages": [
+              {
+                "role": "system",
+                "content": "={{ $json.system_prompt }}"
+              },
+              {
+                "role": "user",
+                "content": "={{ $json.user_prompt }}"
+              }
+            ]
+          },
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "openAiApi"
+        },
+        "credentials": {
+          "openAiApi": {
+            "id": "aSPj5MdeJia8H0O2",
+            "name": "pineirobellas"
+          }
+        }
+      },
+      {
+        "id": "node-wha-6",
+        "name": "Parse & Validate Versions",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1100,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const openaiResponse = $input.first().json;\nconst inputData = $node[\"Build OpenAI Prompt\"].json;\n\nlet versions = [];\ntry {\n  const content = openaiResponse.choices[0].message.content;\n  const parsed = JSON.parse(content);\n  versions = parsed.versions || [];\n} catch(e) {\n  throw new Error('OpenAI no devolvió JSON válido: ' + e.message);\n}\n\nif (!versions || versions.length === 0) {\n  throw new Error('OpenAI no generó versiones');\n}\n\nconst requiredFields = ['hook','body','cta','hashtags','pinned_comment'];\nversions = versions.map((v, i) => {\n  const validated = { version: v.version || (i+1) };\n  for (const field of requiredFields) {\n    validated[field] = v[field] || (field === 'hashtags' ? [] : '');\n  }\n  return validated;\n});\n\nreturn [{\n  json: {\n    versions,\n    input_type: inputData.input_type,\n    input_text: inputData.input_text,\n    uploaded_image_url: inputData.uploaded_image_url\n  }\n}];"
+        }
+      },
+      {
+        "id": "node-wha-7",
+        "name": "Save Draft to Supabase",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1320,
+          0
+        ],
+        "continueOnFail": true,
+        "parameters": {
+          "method": "POST",
+          "url": "={{ $env.SUPABASE_URL }}/rest/v1/posts",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "apikey",
+                "value": "={{ $env.SUPABASE_ANON_KEY }}"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{ $env.SUPABASE_ANON_KEY }}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Prefer",
+                "value": "return=representation"
+              }
+            ]
+          },
+          "sendBody": true,
+          "contentType": "json",
+          "body": {
+            "input_type": "={{ $json.input_type }}",
+            "input_text": "={{ $json.input_text }}",
+            "versions": "={{ JSON.stringify($json.versions) }}",
+            "uploaded_image_url": "={{ $json.uploaded_image_url }}",
+            "status": "draft",
+            "selected_version": 1
+          }
+        }
+      },
+      {
+        "id": "node-wha-8",
+        "name": "Build Success Response",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1540,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const savedPost = Array.isArray($input.first().json) ? $input.first().json[0] : $input.first().json;\nconst versions = $node[\"Parse & Validate Versions\"].json.versions;\n\nreturn [{\n  json: {\n    success: true,\n    post_id: savedPost.id || null,\n    versions: versions\n  }\n}];"
+        }
+      },
+      {
+        "id": "node-wha-9",
+        "name": "Return Versions",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.1,
+        "position": [
+          1760,
+          0
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}"
+        }
+      }
+    ],
+    "connections": {
+      "Receive Generate Request": {
+        "main": [
+          [
+            {
+              "node": "Validate Input",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validate Input": {
+        "main": [
+          [
+            {
+              "node": "Fetch Author Settings",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch Author Settings": {
+        "main": [
+          [
+            {
+              "node": "Build OpenAI Prompt",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build OpenAI Prompt": {
+        "main": [
+          [
+            {
+              "node": "Call OpenAI GPT-4o",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Call OpenAI GPT-4o": {
+        "main": [
+          [
+            {
+              "node": "Parse & Validate Versions",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parse & Validate Versions": {
+        "main": [
+          [
+            {
+              "node": "Save Draft to Supabase",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Save Draft to Supabase": {
+        "main": [
+          [
+            {
+              "node": "Build Success Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Success Response": {
+        "main": [
+          [
+            {
+              "node": "Return Versions",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "authors": "Antón Piñeiro",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-04-01T06:19:25.503Z",
+        "id": 203,
+        "workflowId": "AixZsTjewNbSBnzA",
+        "versionId": "284583fb-ab95-4e80-b554-433fd6ead4d8",
+        "event": "activated",
+        "userId": "84bcaed9-b4e7-4f27-9d34-93fb75581f76"
+      },
+      {
+        "createdAt": "2026-04-01T06:19:25.488Z",
+        "id": 202,
+        "workflowId": "AixZsTjewNbSBnzA",
+        "versionId": "284583fb-ab95-4e80-b554-433fd6ead4d8",
+        "event": "deactivated",
+        "userId": "84bcaed9-b4e7-4f27-9d34-93fb75581f76"
+      }
+    ]
+  }
+}

@@ -1,0 +1,921 @@
+{
+  "updatedAt": "2026-03-31T20:24:39.967Z",
+  "createdAt": "2026-03-31T20:24:39.967Z",
+  "id": "Vdbu0ljkv1ys9vvn",
+  "name": "[LK] Poll Image Tasks",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "id": "poll-node-1",
+      "name": "Poll Every Minute",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "poll-node-2",
+      "name": "Get Pending Tasks",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/image_tasks?status=eq.pending&select=id,post_id,kieai_task_id,task_type,poll_count&limit=10",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_ANON_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "poll-node-3",
+      "name": "Any Pending Tasks?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-1",
+              "leftValue": "={{ Array.isArray($json) ? $json.length : 0 }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "poll-node-4",
+      "name": "Fetch Kie.ai API Key",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/settings?id=eq.1&select=kieai_api_key",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_ANON_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "poll-node-5",
+      "name": "Prepare Poll Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "jsCode": "// Get pending tasks from node-2's output (before IF node)\n// and Kie.ai key from node-4\nconst settingsArr = $input.first().json;\nconst settings = Array.isArray(settingsArr) ? settingsArr[0] : settingsArr;\nconst kieaiKey = settings?.kieai_api_key || '';\n\n// Get the pending tasks stored before the IF\n// We need to re-fetch or pass them through - use $node to get IF input\n// The IF true branch passes through the original array item\n// Actually after SplitInBatches, $json is individual task\n// Store key for downstream use\nreturn [{\n  json: {\n    kieai_key: kieaiKey\n  }\n}];"
+      }
+    },
+    {
+      "id": "poll-node-6",
+      "name": "Split Tasks",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "poll-node-7",
+      "name": "Check Kie.ai Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        0
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "GET",
+        "url": "=https://kieai.erweima.ai/api/v1/generate/record-info/{{$json.kieai_task_id}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$node[\"Fetch Kie.ai API Key\"].json[0]?.kieai_api_key || ''}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "poll-node-8",
+      "name": "Check Task Completion",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst taskData = $node[\"Split Tasks\"].json;\n\nconst isCompleted = response.status === 'completed'\n  || response.data?.status === 'completed'\n  || response.data?.status === 'SUCCESS'\n  || (response.data?.images && response.data.images.length > 0)\n  || (response.data?.resultUrls && response.data.resultUrls.length > 0);\n\nlet resultUrls = [];\nif (isCompleted) {\n  resultUrls = response.data?.images?.map(i => i.url || i)\n    || response.data?.resultUrls\n    || [];\n}\n\nreturn [{\n  json: {\n    task_id: taskData.id,\n    post_id: taskData.post_id,\n    kieai_task_id: taskData.kieai_task_id,\n    is_completed: isCompleted,\n    result_urls: resultUrls,\n    poll_count: (taskData.poll_count || 0) + 1\n  }\n}];"
+      }
+    },
+    {
+      "id": "poll-node-9",
+      "name": "Task Completed?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1760,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict"
+          },
+          "conditions": [
+            {
+              "id": "cond-2",
+              "leftValue": "={{$json.is_completed}}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "poll-node-10",
+      "name": "Update Task Complete",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1980,
+        -100
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/image_tasks?id=eq.{{$json.task_id}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_ANON_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={\"status\": \"completed\", \"result_urls\": {{JSON.stringify($json.result_urls)}}, \"poll_count\": {{$json.poll_count}}}"
+      }
+    },
+    {
+      "id": "poll-node-11",
+      "name": "Update Post with Images",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2200,
+        -100
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/posts?id=eq.{{$node[\"Check Task Completion\"].json.post_id}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_ANON_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={\"image_status\": \"ready\", \"image_option_1\": \"{{$node[\\\"Check Task Completion\\\"].json.result_urls[0] || ''}}\", \"image_option_2\": \"{{$node[\\\"Check Task Completion\\\"].json.result_urls[1] || ''}}\"}"
+      }
+    },
+    {
+      "id": "poll-node-12",
+      "name": "Increment Poll Count",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1980,
+        100
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/image_tasks?id=eq.{{$json.task_id}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_ANON_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={\"poll_count\": {{$json.poll_count}}, \"last_polled_at\": \"{{new Date().toISOString()}}\"}"
+      }
+    }
+  ],
+  "connections": {
+    "Poll Every Minute": {
+      "main": [
+        [
+          {
+            "node": "Get Pending Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Pending Tasks": {
+      "main": [
+        [
+          {
+            "node": "Any Pending Tasks?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any Pending Tasks?": {
+      "main": [
+        [
+          {
+            "node": "Fetch Kie.ai API Key",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Fetch Kie.ai API Key": {
+      "main": [
+        [
+          {
+            "node": "Split Tasks",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Tasks": {
+      "main": [
+        [
+          {
+            "node": "Check Kie.ai Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Kie.ai Status": {
+      "main": [
+        [
+          {
+            "node": "Check Task Completion",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Task Completion": {
+      "main": [
+        [
+          {
+            "node": "Task Completed?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Task Completed?": {
+      "main": [
+        [
+          {
+            "node": "Update Task Complete",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Increment Poll Count",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Task Complete": {
+      "main": [
+        [
+          {
+            "node": "Update Post with Images",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": {
+    "node:Poll Every Minute": {
+      "recurrenceRules": []
+    }
+  },
+  "meta": null,
+  "pinData": null,
+  "versionId": "9aab587d-368a-4a79-b3af-a751c48d0719",
+  "activeVersionId": "9aab587d-368a-4a79-b3af-a751c48d0719",
+  "versionCounter": 4,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-03-31T20:24:39.970Z",
+      "createdAt": "2026-03-31T20:24:39.970Z",
+      "role": "workflow:owner",
+      "workflowId": "Vdbu0ljkv1ys9vvn",
+      "projectId": "0A2r46jIiDdsUxMV",
+      "project": {
+        "updatedAt": "2026-03-17T22:13:08.914Z",
+        "createdAt": "2026-03-17T22:12:37.916Z",
+        "id": "0A2r46jIiDdsUxMV",
+        "name": "Antón Piñeiro <pineirobellasanton@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "84bcaed9-b4e7-4f27-9d34-93fb75581f76"
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": {
+    "updatedAt": "2026-03-31T20:24:39.974Z",
+    "createdAt": "2026-03-31T20:24:39.974Z",
+    "versionId": "9aab587d-368a-4a79-b3af-a751c48d0719",
+    "workflowId": "Vdbu0ljkv1ys9vvn",
+    "nodes": [
+      {
+        "id": "poll-node-1",
+        "name": "Poll Every Minute",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "minutes",
+                "minutesInterval": 1
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "poll-node-2",
+        "name": "Get Pending Tasks",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          220,
+          0
+        ],
+        "parameters": {
+          "method": "GET",
+          "url": "={{$env.SUPABASE_URL}}/rest/v1/image_tasks?status=eq.pending&select=id,post_id,kieai_task_id,task_type,poll_count&limit=10",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "apikey",
+                "value": "={{$env.SUPABASE_ANON_KEY}}"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "poll-node-3",
+        "name": "Any Pending Tasks?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          440,
+          0
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict"
+            },
+            "conditions": [
+              {
+                "id": "cond-1",
+                "leftValue": "={{ Array.isArray($json) ? $json.length : 0 }}",
+                "rightValue": 0,
+                "operator": {
+                  "type": "number",
+                  "operation": "gt"
+                }
+              }
+            ],
+            "combinator": "and"
+          }
+        }
+      },
+      {
+        "id": "poll-node-4",
+        "name": "Fetch Kie.ai API Key",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          660,
+          0
+        ],
+        "parameters": {
+          "method": "GET",
+          "url": "={{$env.SUPABASE_URL}}/rest/v1/settings?id=eq.1&select=kieai_api_key",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "apikey",
+                "value": "={{$env.SUPABASE_ANON_KEY}}"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "poll-node-5",
+        "name": "Prepare Poll Data",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          880,
+          0
+        ],
+        "parameters": {
+          "jsCode": "// Get pending tasks from node-2's output (before IF node)\n// and Kie.ai key from node-4\nconst settingsArr = $input.first().json;\nconst settings = Array.isArray(settingsArr) ? settingsArr[0] : settingsArr;\nconst kieaiKey = settings?.kieai_api_key || '';\n\n// Get the pending tasks stored before the IF\n// We need to re-fetch or pass them through - use $node to get IF input\n// The IF true branch passes through the original array item\n// Actually after SplitInBatches, $json is individual task\n// Store key for downstream use\nreturn [{\n  json: {\n    kieai_key: kieaiKey\n  }\n}];"
+        }
+      },
+      {
+        "id": "poll-node-6",
+        "name": "Split Tasks",
+        "type": "n8n-nodes-base.splitInBatches",
+        "typeVersion": 3,
+        "position": [
+          1100,
+          0
+        ],
+        "parameters": {
+          "batchSize": 1,
+          "options": {}
+        }
+      },
+      {
+        "id": "poll-node-7",
+        "name": "Check Kie.ai Status",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1320,
+          0
+        ],
+        "continueOnFail": true,
+        "parameters": {
+          "method": "GET",
+          "url": "=https://kieai.erweima.ai/api/v1/generate/record-info/{{$json.kieai_task_id}}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{$node[\"Fetch Kie.ai API Key\"].json[0]?.kieai_api_key || ''}}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "poll-node-8",
+        "name": "Check Task Completion",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1540,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const response = $input.first().json;\nconst taskData = $node[\"Split Tasks\"].json;\n\nconst isCompleted = response.status === 'completed'\n  || response.data?.status === 'completed'\n  || response.data?.status === 'SUCCESS'\n  || (response.data?.images && response.data.images.length > 0)\n  || (response.data?.resultUrls && response.data.resultUrls.length > 0);\n\nlet resultUrls = [];\nif (isCompleted) {\n  resultUrls = response.data?.images?.map(i => i.url || i)\n    || response.data?.resultUrls\n    || [];\n}\n\nreturn [{\n  json: {\n    task_id: taskData.id,\n    post_id: taskData.post_id,\n    kieai_task_id: taskData.kieai_task_id,\n    is_completed: isCompleted,\n    result_urls: resultUrls,\n    poll_count: (taskData.poll_count || 0) + 1\n  }\n}];"
+        }
+      },
+      {
+        "id": "poll-node-9",
+        "name": "Task Completed?",
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.2,
+        "position": [
+          1760,
+          0
+        ],
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict"
+            },
+            "conditions": [
+              {
+                "id": "cond-2",
+                "leftValue": "={{$json.is_completed}}",
+                "rightValue": true,
+                "operator": {
+                  "type": "boolean",
+                  "operation": "true"
+                }
+              }
+            ],
+            "combinator": "and"
+          }
+        }
+      },
+      {
+        "id": "poll-node-10",
+        "name": "Update Task Complete",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1980,
+          -100
+        ],
+        "parameters": {
+          "method": "PATCH",
+          "url": "={{$env.SUPABASE_URL}}/rest/v1/image_tasks?id=eq.{{$json.task_id}}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "apikey",
+                "value": "={{$env.SUPABASE_ANON_KEY}}"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Prefer",
+                "value": "return=minimal"
+              }
+            ]
+          },
+          "sendBody": true,
+          "contentType": "raw",
+          "rawContentType": "application/json",
+          "body": "={\"status\": \"completed\", \"result_urls\": {{JSON.stringify($json.result_urls)}}, \"poll_count\": {{$json.poll_count}}}"
+        }
+      },
+      {
+        "id": "poll-node-11",
+        "name": "Update Post with Images",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          2200,
+          -100
+        ],
+        "parameters": {
+          "method": "PATCH",
+          "url": "={{$env.SUPABASE_URL}}/rest/v1/posts?id=eq.{{$node[\"Check Task Completion\"].json.post_id}}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "apikey",
+                "value": "={{$env.SUPABASE_ANON_KEY}}"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Prefer",
+                "value": "return=minimal"
+              }
+            ]
+          },
+          "sendBody": true,
+          "contentType": "raw",
+          "rawContentType": "application/json",
+          "body": "={\"image_status\": \"ready\", \"image_option_1\": \"{{$node[\\\"Check Task Completion\\\"].json.result_urls[0] || ''}}\", \"image_option_2\": \"{{$node[\\\"Check Task Completion\\\"].json.result_urls[1] || ''}}\"}"
+        }
+      },
+      {
+        "id": "poll-node-12",
+        "name": "Increment Poll Count",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1980,
+          100
+        ],
+        "parameters": {
+          "method": "PATCH",
+          "url": "={{$env.SUPABASE_URL}}/rest/v1/image_tasks?id=eq.{{$json.task_id}}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "apikey",
+                "value": "={{$env.SUPABASE_ANON_KEY}}"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Prefer",
+                "value": "return=minimal"
+              }
+            ]
+          },
+          "sendBody": true,
+          "contentType": "raw",
+          "rawContentType": "application/json",
+          "body": "={\"poll_count\": {{$json.poll_count}}, \"last_polled_at\": \"{{new Date().toISOString()}}\"}"
+        }
+      }
+    ],
+    "connections": {
+      "Poll Every Minute": {
+        "main": [
+          [
+            {
+              "node": "Get Pending Tasks",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Get Pending Tasks": {
+        "main": [
+          [
+            {
+              "node": "Any Pending Tasks?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Any Pending Tasks?": {
+        "main": [
+          [
+            {
+              "node": "Fetch Kie.ai API Key",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          []
+        ]
+      },
+      "Fetch Kie.ai API Key": {
+        "main": [
+          [
+            {
+              "node": "Split Tasks",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Split Tasks": {
+        "main": [
+          [
+            {
+              "node": "Check Kie.ai Status",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Check Kie.ai Status": {
+        "main": [
+          [
+            {
+              "node": "Check Task Completion",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Check Task Completion": {
+        "main": [
+          [
+            {
+              "node": "Task Completed?",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Task Completed?": {
+        "main": [
+          [
+            {
+              "node": "Update Task Complete",
+              "type": "main",
+              "index": 0
+            }
+          ],
+          [
+            {
+              "node": "Increment Poll Count",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Update Task Complete": {
+        "main": [
+          [
+            {
+              "node": "Update Post with Images",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "authors": "Antón Piñeiro",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-03-31T20:26:18.953Z",
+        "id": 200,
+        "workflowId": "Vdbu0ljkv1ys9vvn",
+        "versionId": "9aab587d-368a-4a79-b3af-a751c48d0719",
+        "event": "activated",
+        "userId": "84bcaed9-b4e7-4f27-9d34-93fb75581f76"
+      }
+    ]
+  }
+}

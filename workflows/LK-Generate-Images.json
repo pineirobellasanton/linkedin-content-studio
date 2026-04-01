@@ -1,0 +1,703 @@
+{
+  "updatedAt": "2026-03-31T20:23:40.336Z",
+  "createdAt": "2026-03-31T20:23:40.336Z",
+  "id": "72ARI9FMtPt7ppXd",
+  "name": "[LK] Generate Images",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "id": "node-1",
+      "name": "Receive Image Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "path": "lk/generate-images",
+        "httpMethod": "POST",
+        "responseMode": "lastNode"
+      }
+    },
+    {
+      "id": "node-2",
+      "name": "Validate Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nif (!body.post_id) throw new Error('post_id requerido');\nif (!body.task_type || !['generate','edit'].includes(body.task_type)) throw new Error('task_type debe ser generate o edit');\nif (!body.prompt && body.task_type === 'generate') throw new Error('prompt requerido para generar imagen');\nreturn [{\n  json: {\n    post_id: body.post_id,\n    task_type: body.task_type,\n    prompt: body.prompt || '',\n    uploaded_image_url: body.uploaded_image_url || null\n  }\n}];"
+      }
+    },
+    {
+      "id": "node-3",
+      "name": "Fetch Kie.ai Key",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/settings?id=eq.1&select=kieai_api_key",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_ANON_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "node-4",
+      "name": "Prepare Kie.ai Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const req = $node[\"Validate Request\"].json;\nconst settingsArr = $node[\"Fetch Kie.ai Key\"].json;\nconst settings = Array.isArray(settingsArr) ? settingsArr[0] : settingsArr;\nconst kieaiKey = settings?.kieai_api_key || '';\n\nif (!kieaiKey) throw new Error('Kie.ai API key no configurada. Ve a Configuracion en la app.');\n\nreturn [{\n  json: {\n    post_id: req.post_id,\n    task_type: req.task_type,\n    prompt: req.prompt,\n    uploaded_image_url: req.uploaded_image_url,\n    kieai_key: kieaiKey,\n    endpoint: req.task_type === 'edit'\n      ? 'https://kieai.erweima.ai/api/v1/ai-photo-editor/edit'\n      : 'https://kieai.erweima.ai/api/v1/flux-kontext/generate'\n  }\n}];"
+      }
+    },
+    {
+      "id": "node-5",
+      "name": "Submit to Kie.ai",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        880,
+        0
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "={{$json.endpoint}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$json.kieai_key}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.task_type === 'edit' ? JSON.stringify({\"imageUrl\": $json.uploaded_image_url, \"prompt\": $json.prompt, \"outputImageCount\": 2}) : JSON.stringify({\"prompt\": $json.prompt, \"outputImageCount\": 2, \"aspectRatio\": \"1:1\"}) }}"
+      }
+    },
+    {
+      "id": "node-6",
+      "name": "Extract Task ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const kieaiResponse = $input.first().json;\nconst req = $node[\"Validate Request\"].json;\n\nlet taskId = null;\ntry {\n  taskId = kieaiResponse.data?.taskId\n    || kieaiResponse.data?.task_id\n    || kieaiResponse.taskId\n    || kieaiResponse.task_id\n    || kieaiResponse.id\n    || ('pending_' + Date.now());\n} catch(e) {\n  taskId = 'pending_' + Date.now();\n}\n\nreturn [{\n  json: {\n    post_id: req.post_id,\n    task_id: taskId,\n    task_type: req.task_type,\n    prompt: req.prompt,\n    raw_response: JSON.stringify(kieaiResponse)\n  }\n}];"
+      }
+    },
+    {
+      "id": "node-7",
+      "name": "Save Image Task to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1320,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/image_tasks",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_ANON_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={\"post_id\": \"{{$json.post_id}}\", \"kieai_task_id\": \"{{$json.task_id}}\", \"task_type\": \"{{$json.task_type}}\", \"status\": \"pending\", \"prompt_used\": \"{{$json.prompt}}\"}"
+      }
+    },
+    {
+      "id": "node-8",
+      "name": "Update Post Image Status",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1540,
+        0
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/posts?id=eq.{{$node[\"Validate Request\"].json.post_id}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_ANON_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={\"image_status\": \"pending\", \"image_task_id\": \"{{$node['Extract Task ID'].json.task_id}}\"}"
+      }
+    },
+    {
+      "id": "node-9",
+      "name": "Return Task ID",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1760,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const taskData = $node[\"Extract Task ID\"].json;\nreturn [{\n  json: {\n    success: true,\n    task_id: taskData.task_id,\n    post_id: taskData.post_id,\n    image_status: 'pending',\n    message: 'Tarea enviada a Kie.ai. La imagen se actualizara en 30-90 segundos.'\n  }\n}];"
+      }
+    },
+    {
+      "id": "node-10",
+      "name": "Return Immediately",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        1980,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}"
+      }
+    }
+  ],
+  "connections": {
+    "Receive Image Request": {
+      "main": [
+        [
+          {
+            "node": "Validate Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Request": {
+      "main": [
+        [
+          {
+            "node": "Fetch Kie.ai Key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Kie.ai Key": {
+      "main": [
+        [
+          {
+            "node": "Prepare Kie.ai Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Kie.ai Request": {
+      "main": [
+        [
+          {
+            "node": "Submit to Kie.ai",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Submit to Kie.ai": {
+      "main": [
+        [
+          {
+            "node": "Extract Task ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Task ID": {
+      "main": [
+        [
+          {
+            "node": "Save Image Task to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Image Task to Supabase": {
+      "main": [
+        [
+          {
+            "node": "Update Post Image Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Post Image Status": {
+      "main": [
+        [
+          {
+            "node": "Return Task ID",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Return Task ID": {
+      "main": [
+        [
+          {
+            "node": "Return Immediately",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": null,
+  "versionId": "898ccccf-7fd1-4268-808d-592bd60dd950",
+  "activeVersionId": "898ccccf-7fd1-4268-808d-592bd60dd950",
+  "versionCounter": 3,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-03-31T20:23:40.338Z",
+      "createdAt": "2026-03-31T20:23:40.338Z",
+      "role": "workflow:owner",
+      "workflowId": "72ARI9FMtPt7ppXd",
+      "projectId": "0A2r46jIiDdsUxMV",
+      "project": {
+        "updatedAt": "2026-03-17T22:13:08.914Z",
+        "createdAt": "2026-03-17T22:12:37.916Z",
+        "id": "0A2r46jIiDdsUxMV",
+        "name": "Antón Piñeiro <pineirobellasanton@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "84bcaed9-b4e7-4f27-9d34-93fb75581f76"
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": {
+    "updatedAt": "2026-03-31T20:23:40.342Z",
+    "createdAt": "2026-03-31T20:23:40.342Z",
+    "versionId": "898ccccf-7fd1-4268-808d-592bd60dd950",
+    "workflowId": "72ARI9FMtPt7ppXd",
+    "nodes": [
+      {
+        "id": "node-1",
+        "name": "Receive Image Request",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "path": "lk/generate-images",
+          "httpMethod": "POST",
+          "responseMode": "lastNode"
+        }
+      },
+      {
+        "id": "node-2",
+        "name": "Validate Request",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          220,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const body = $input.first().json.body || $input.first().json;\nif (!body.post_id) throw new Error('post_id requerido');\nif (!body.task_type || !['generate','edit'].includes(body.task_type)) throw new Error('task_type debe ser generate o edit');\nif (!body.prompt && body.task_type === 'generate') throw new Error('prompt requerido para generar imagen');\nreturn [{\n  json: {\n    post_id: body.post_id,\n    task_type: body.task_type,\n    prompt: body.prompt || '',\n    uploaded_image_url: body.uploaded_image_url || null\n  }\n}];"
+        }
+      },
+      {
+        "id": "node-3",
+        "name": "Fetch Kie.ai Key",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          440,
+          0
+        ],
+        "parameters": {
+          "method": "GET",
+          "url": "={{$env.SUPABASE_URL}}/rest/v1/settings?id=eq.1&select=kieai_api_key",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "apikey",
+                "value": "={{$env.SUPABASE_ANON_KEY}}"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "node-4",
+        "name": "Prepare Kie.ai Request",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          660,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const req = $node[\"Validate Request\"].json;\nconst settingsArr = $node[\"Fetch Kie.ai Key\"].json;\nconst settings = Array.isArray(settingsArr) ? settingsArr[0] : settingsArr;\nconst kieaiKey = settings?.kieai_api_key || '';\n\nif (!kieaiKey) throw new Error('Kie.ai API key no configurada. Ve a Configuracion en la app.');\n\nreturn [{\n  json: {\n    post_id: req.post_id,\n    task_type: req.task_type,\n    prompt: req.prompt,\n    uploaded_image_url: req.uploaded_image_url,\n    kieai_key: kieaiKey,\n    endpoint: req.task_type === 'edit'\n      ? 'https://kieai.erweima.ai/api/v1/ai-photo-editor/edit'\n      : 'https://kieai.erweima.ai/api/v1/flux-kontext/generate'\n  }\n}];"
+        }
+      },
+      {
+        "id": "node-5",
+        "name": "Submit to Kie.ai",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          880,
+          0
+        ],
+        "continueOnFail": true,
+        "parameters": {
+          "method": "POST",
+          "url": "={{$json.endpoint}}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{$json.kieai_key}}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              }
+            ]
+          },
+          "sendBody": true,
+          "contentType": "raw",
+          "rawContentType": "application/json",
+          "body": "={{ $json.task_type === 'edit' ? JSON.stringify({\"imageUrl\": $json.uploaded_image_url, \"prompt\": $json.prompt, \"outputImageCount\": 2}) : JSON.stringify({\"prompt\": $json.prompt, \"outputImageCount\": 2, \"aspectRatio\": \"1:1\"}) }}"
+        }
+      },
+      {
+        "id": "node-6",
+        "name": "Extract Task ID",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1100,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const kieaiResponse = $input.first().json;\nconst req = $node[\"Validate Request\"].json;\n\nlet taskId = null;\ntry {\n  taskId = kieaiResponse.data?.taskId\n    || kieaiResponse.data?.task_id\n    || kieaiResponse.taskId\n    || kieaiResponse.task_id\n    || kieaiResponse.id\n    || ('pending_' + Date.now());\n} catch(e) {\n  taskId = 'pending_' + Date.now();\n}\n\nreturn [{\n  json: {\n    post_id: req.post_id,\n    task_id: taskId,\n    task_type: req.task_type,\n    prompt: req.prompt,\n    raw_response: JSON.stringify(kieaiResponse)\n  }\n}];"
+        }
+      },
+      {
+        "id": "node-7",
+        "name": "Save Image Task to Supabase",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1320,
+          0
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "={{$env.SUPABASE_URL}}/rest/v1/image_tasks",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "apikey",
+                "value": "={{$env.SUPABASE_ANON_KEY}}"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Prefer",
+                "value": "return=representation"
+              }
+            ]
+          },
+          "sendBody": true,
+          "contentType": "raw",
+          "rawContentType": "application/json",
+          "body": "={\"post_id\": \"{{$json.post_id}}\", \"kieai_task_id\": \"{{$json.task_id}}\", \"task_type\": \"{{$json.task_type}}\", \"status\": \"pending\", \"prompt_used\": \"{{$json.prompt}}\"}"
+        }
+      },
+      {
+        "id": "node-8",
+        "name": "Update Post Image Status",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1540,
+          0
+        ],
+        "parameters": {
+          "method": "PATCH",
+          "url": "={{$env.SUPABASE_URL}}/rest/v1/posts?id=eq.{{$node[\"Validate Request\"].json.post_id}}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "apikey",
+                "value": "={{$env.SUPABASE_ANON_KEY}}"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Prefer",
+                "value": "return=minimal"
+              }
+            ]
+          },
+          "sendBody": true,
+          "contentType": "raw",
+          "rawContentType": "application/json",
+          "body": "={\"image_status\": \"pending\", \"image_task_id\": \"{{$node['Extract Task ID'].json.task_id}}\"}"
+        }
+      },
+      {
+        "id": "node-9",
+        "name": "Return Task ID",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1760,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const taskData = $node[\"Extract Task ID\"].json;\nreturn [{\n  json: {\n    success: true,\n    task_id: taskData.task_id,\n    post_id: taskData.post_id,\n    image_status: 'pending',\n    message: 'Tarea enviada a Kie.ai. La imagen se actualizara en 30-90 segundos.'\n  }\n}];"
+        }
+      },
+      {
+        "id": "node-10",
+        "name": "Return Immediately",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.1,
+        "position": [
+          1980,
+          0
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{$json}}"
+        }
+      }
+    ],
+    "connections": {
+      "Receive Image Request": {
+        "main": [
+          [
+            {
+              "node": "Validate Request",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validate Request": {
+        "main": [
+          [
+            {
+              "node": "Fetch Kie.ai Key",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch Kie.ai Key": {
+        "main": [
+          [
+            {
+              "node": "Prepare Kie.ai Request",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Prepare Kie.ai Request": {
+        "main": [
+          [
+            {
+              "node": "Submit to Kie.ai",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Submit to Kie.ai": {
+        "main": [
+          [
+            {
+              "node": "Extract Task ID",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Extract Task ID": {
+        "main": [
+          [
+            {
+              "node": "Save Image Task to Supabase",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Save Image Task to Supabase": {
+        "main": [
+          [
+            {
+              "node": "Update Post Image Status",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Update Post Image Status": {
+        "main": [
+          [
+            {
+              "node": "Return Task ID",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Return Task ID": {
+        "main": [
+          [
+            {
+              "node": "Return Immediately",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "authors": "Antón Piñeiro",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-03-31T20:26:18.860Z",
+        "id": 199,
+        "workflowId": "72ARI9FMtPt7ppXd",
+        "versionId": "898ccccf-7fd1-4268-808d-592bd60dd950",
+        "event": "activated",
+        "userId": "84bcaed9-b4e7-4f27-9d34-93fb75581f76"
+      }
+    ]
+  }
+}

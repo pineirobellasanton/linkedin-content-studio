@@ -1,0 +1,427 @@
+{
+  "updatedAt": "2026-03-31T20:09:15.233Z",
+  "createdAt": "2026-03-31T20:09:15.233Z",
+  "id": "SDgpFUjZeFzvmyde",
+  "name": "[LK] Get Drafts & History",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "id": "node-webhook",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "GET",
+        "path": "lk/get-drafts",
+        "responseMode": "lastNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "node-validate",
+      "name": "Validate + Parse Params",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const item = $input.first().json;\nconst headers = item.headers || {};\nconst query = item.query || {};\n\n// Token validation (optional in dev - comment out if needed)\n// const token = (headers['x-app-token'] || '').toLowerCase();\n// if (token !== ($env.APP_TOKEN || '').toLowerCase()) {\n//   throw new Error('Unauthorized');\n// }\n\nconst status = query.status || 'all';\nconst page = Math.max(1, parseInt(query.page) || 1);\nconst limit = Math.min(50, Math.max(1, parseInt(query.limit) || 20));\nconst offset = (page - 1) * limit;\n\nlet statusFilter = '';\nif (status !== 'all') {\n  statusFilter = `&status=eq.${status}`;\n}\n\nreturn [{\n  json: {\n    status,\n    page,\n    limit,\n    offset,\n    statusFilter\n  }\n}];"
+      }
+    },
+    {
+      "id": "node-get-posts",
+      "name": "GET Posts from Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/posts?select=id,created_at,updated_at,status,input_type,input_text,versions,selected_version,final_hook,image_status,selected_image_url,uploaded_image_url,linkedin_url,published_at&order=created_at.desc&limit={{$json.limit}}&offset={{$json.offset}}{{$json.statusFilter}}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_ANON_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+            },
+            {
+              "name": "Prefer",
+              "value": "count=exact"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-get-ideas",
+      "name": "GET Today Ideas from Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        200
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/ideas?date_generated=eq.{{ new Date().toISOString().split('T')[0] }}&status=eq.new&order=created_at.desc&limit=10",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_ANON_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "node-build-response",
+      "name": "Build Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const params = $node[\"Validate + Parse Params\"].json;\nconst postsResponse = $node[\"GET Posts from Supabase\"].json;\nconst ideasResponse = $node[\"GET Today Ideas from Supabase\"].json;\n\n// postsResponse may be an array or single object\nconst posts = Array.isArray(postsResponse) ? postsResponse : [postsResponse];\nconst ideas = Array.isArray(ideasResponse) ? ideasResponse : [ideasResponse];\n\n// Try to get total from Content-Range header\nlet total = posts.length;\ntry {\n  const contentRange = $node[\"GET Posts from Supabase\"].context?.response?.headers?.['content-range'] || '';\n  const match = contentRange.match(/\\/(\\d+)$/);\n  if (match) total = parseInt(match[1]);\n} catch(e) {}\n\nreturn [{\n  json: {\n    success: true,\n    posts: posts.filter(p => p && p.id),\n    ideas: ideas.filter(i => i && i.id),\n    total,\n    page: params.page,\n    limit: params.limit\n  }\n}];"
+      }
+    },
+    {
+      "id": "node-respond",
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        100
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Validate + Parse Params",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate + Parse Params": {
+      "main": [
+        [
+          {
+            "node": "GET Posts from Supabase",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "GET Today Ideas from Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Posts from Supabase": {
+      "main": [
+        [
+          {
+            "node": "Build Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET Today Ideas from Supabase": {
+      "main": [
+        [
+          {
+            "node": "Build Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Response": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": null,
+  "versionId": "f2e474a7-9693-4d42-81c7-f183e192a4d8",
+  "activeVersionId": "f2e474a7-9693-4d42-81c7-f183e192a4d8",
+  "versionCounter": 3,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-03-31T20:09:15.237Z",
+      "createdAt": "2026-03-31T20:09:15.237Z",
+      "role": "workflow:owner",
+      "workflowId": "SDgpFUjZeFzvmyde",
+      "projectId": "0A2r46jIiDdsUxMV",
+      "project": {
+        "updatedAt": "2026-03-17T22:13:08.914Z",
+        "createdAt": "2026-03-17T22:12:37.916Z",
+        "id": "0A2r46jIiDdsUxMV",
+        "name": "Antón Piñeiro <pineirobellasanton@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "84bcaed9-b4e7-4f27-9d34-93fb75581f76"
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": {
+    "updatedAt": "2026-03-31T20:09:15.242Z",
+    "createdAt": "2026-03-31T20:09:15.242Z",
+    "versionId": "f2e474a7-9693-4d42-81c7-f183e192a4d8",
+    "workflowId": "SDgpFUjZeFzvmyde",
+    "nodes": [
+      {
+        "id": "node-webhook",
+        "name": "Webhook",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "httpMethod": "GET",
+          "path": "lk/get-drafts",
+          "responseMode": "lastNode",
+          "options": {}
+        }
+      },
+      {
+        "id": "node-validate",
+        "name": "Validate + Parse Params",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          220,
+          0
+        ],
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "jsCode": "const item = $input.first().json;\nconst headers = item.headers || {};\nconst query = item.query || {};\n\n// Token validation (optional in dev - comment out if needed)\n// const token = (headers['x-app-token'] || '').toLowerCase();\n// if (token !== ($env.APP_TOKEN || '').toLowerCase()) {\n//   throw new Error('Unauthorized');\n// }\n\nconst status = query.status || 'all';\nconst page = Math.max(1, parseInt(query.page) || 1);\nconst limit = Math.min(50, Math.max(1, parseInt(query.limit) || 20));\nconst offset = (page - 1) * limit;\n\nlet statusFilter = '';\nif (status !== 'all') {\n  statusFilter = `&status=eq.${status}`;\n}\n\nreturn [{\n  json: {\n    status,\n    page,\n    limit,\n    offset,\n    statusFilter\n  }\n}];"
+        }
+      },
+      {
+        "id": "node-get-posts",
+        "name": "GET Posts from Supabase",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          440,
+          0
+        ],
+        "parameters": {
+          "method": "GET",
+          "url": "={{$env.SUPABASE_URL}}/rest/v1/posts?select=id,created_at,updated_at,status,input_type,input_text,versions,selected_version,final_hook,image_status,selected_image_url,uploaded_image_url,linkedin_url,published_at&order=created_at.desc&limit={{$json.limit}}&offset={{$json.offset}}{{$json.statusFilter}}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "apikey",
+                "value": "={{$env.SUPABASE_ANON_KEY}}"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+              },
+              {
+                "name": "Prefer",
+                "value": "count=exact"
+              }
+            ]
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "node-get-ideas",
+        "name": "GET Today Ideas from Supabase",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          440,
+          200
+        ],
+        "parameters": {
+          "method": "GET",
+          "url": "={{$env.SUPABASE_URL}}/rest/v1/ideas?date_generated=eq.{{ new Date().toISOString().split('T')[0] }}&status=eq.new&order=created_at.desc&limit=10",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "apikey",
+                "value": "={{$env.SUPABASE_ANON_KEY}}"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+              }
+            ]
+          },
+          "options": {}
+        }
+      },
+      {
+        "id": "node-build-response",
+        "name": "Build Response",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          660,
+          100
+        ],
+        "parameters": {
+          "mode": "runOnceForAllItems",
+          "jsCode": "const params = $node[\"Validate + Parse Params\"].json;\nconst postsResponse = $node[\"GET Posts from Supabase\"].json;\nconst ideasResponse = $node[\"GET Today Ideas from Supabase\"].json;\n\n// postsResponse may be an array or single object\nconst posts = Array.isArray(postsResponse) ? postsResponse : [postsResponse];\nconst ideas = Array.isArray(ideasResponse) ? ideasResponse : [ideasResponse];\n\n// Try to get total from Content-Range header\nlet total = posts.length;\ntry {\n  const contentRange = $node[\"GET Posts from Supabase\"].context?.response?.headers?.['content-range'] || '';\n  const match = contentRange.match(/\\/(\\d+)$/);\n  if (match) total = parseInt(match[1]);\n} catch(e) {}\n\nreturn [{\n  json: {\n    success: true,\n    posts: posts.filter(p => p && p.id),\n    ideas: ideas.filter(i => i && i.id),\n    total,\n    page: params.page,\n    limit: params.limit\n  }\n}];"
+        }
+      },
+      {
+        "id": "node-respond",
+        "name": "Respond to Webhook",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.1,
+        "position": [
+          880,
+          100
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}",
+          "options": {}
+        }
+      }
+    ],
+    "connections": {
+      "Webhook": {
+        "main": [
+          [
+            {
+              "node": "Validate + Parse Params",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validate + Parse Params": {
+        "main": [
+          [
+            {
+              "node": "GET Posts from Supabase",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "GET Today Ideas from Supabase",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "GET Posts from Supabase": {
+        "main": [
+          [
+            {
+              "node": "Build Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "GET Today Ideas from Supabase": {
+        "main": [
+          [
+            {
+              "node": "Build Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Response": {
+        "main": [
+          [
+            {
+              "node": "Respond to Webhook",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "authors": "Antón Piñeiro",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-03-31T20:09:15.384Z",
+        "id": 195,
+        "workflowId": "SDgpFUjZeFzvmyde",
+        "versionId": "f2e474a7-9693-4d42-81c7-f183e192a4d8",
+        "event": "activated",
+        "userId": "84bcaed9-b4e7-4f27-9d34-93fb75581f76"
+      }
+    ]
+  }
+}

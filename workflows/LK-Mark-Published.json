@@ -1,0 +1,353 @@
+{
+  "updatedAt": "2026-03-31T20:17:59.830Z",
+  "createdAt": "2026-03-31T20:17:59.830Z",
+  "id": "SBV0JacQqCewsit7",
+  "name": "[LK] Mark Published",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "id": "node-whc-1",
+      "name": "Receive Mark Published",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "path": "lk/mark-published",
+        "httpMethod": "POST",
+        "responseMode": "lastNode"
+      },
+      "webhookId": "lk-mark-published"
+    },
+    {
+      "id": "node-whc-2",
+      "name": "Validate Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nif (!body.post_id) throw new Error('post_id requerido');\nconst now = new Date().toISOString();\nreturn [{\n  json: {\n    post_id: body.post_id,\n    linkedin_url: body.linkedin_url || null,\n    published_at: now\n  }\n}];"
+      }
+    },
+    {
+      "id": "node-whc-3",
+      "name": "Mark Published in Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "method": "PATCH",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/posts?id=eq.{{ $json.post_id }}",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{ $env.SUPABASE_ANON_KEY }}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $env.SUPABASE_ANON_KEY }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=representation"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "body": {
+          "status": "published",
+          "published_at": "={{ $json.published_at }}",
+          "linkedin_url": "={{ $json.linkedin_url }}"
+        }
+      }
+    },
+    {
+      "id": "node-whc-4",
+      "name": "Build Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        660,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const updated = Array.isArray($input.first().json) ? $input.first().json[0] : $input.first().json;\nreturn [{ json: { success: true, post: updated } }];"
+      }
+    },
+    {
+      "id": "node-whc-5",
+      "name": "Return Result",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}"
+      }
+    }
+  ],
+  "connections": {
+    "Receive Mark Published": {
+      "main": [
+        [
+          {
+            "node": "Validate Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Request": {
+      "main": [
+        [
+          {
+            "node": "Mark Published in Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Published in Supabase": {
+      "main": [
+        [
+          {
+            "node": "Build Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Response": {
+      "main": [
+        [
+          {
+            "node": "Return Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": null,
+  "versionId": "66c3d0ad-cada-490e-af92-fceb4fe69a8b",
+  "activeVersionId": "66c3d0ad-cada-490e-af92-fceb4fe69a8b",
+  "versionCounter": 3,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-03-31T20:17:59.832Z",
+      "createdAt": "2026-03-31T20:17:59.832Z",
+      "role": "workflow:owner",
+      "workflowId": "SBV0JacQqCewsit7",
+      "projectId": "0A2r46jIiDdsUxMV",
+      "project": {
+        "updatedAt": "2026-03-17T22:13:08.914Z",
+        "createdAt": "2026-03-17T22:12:37.916Z",
+        "id": "0A2r46jIiDdsUxMV",
+        "name": "Antón Piñeiro <pineirobellasanton@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "84bcaed9-b4e7-4f27-9d34-93fb75581f76"
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": {
+    "updatedAt": "2026-03-31T20:17:59.836Z",
+    "createdAt": "2026-03-31T20:17:59.836Z",
+    "versionId": "66c3d0ad-cada-490e-af92-fceb4fe69a8b",
+    "workflowId": "SBV0JacQqCewsit7",
+    "nodes": [
+      {
+        "id": "node-whc-1",
+        "name": "Receive Mark Published",
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "path": "lk/mark-published",
+          "httpMethod": "POST",
+          "responseMode": "lastNode"
+        },
+        "webhookId": "lk-mark-published"
+      },
+      {
+        "id": "node-whc-2",
+        "name": "Validate Request",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          220,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const body = $input.first().json.body || $input.first().json;\nif (!body.post_id) throw new Error('post_id requerido');\nconst now = new Date().toISOString();\nreturn [{\n  json: {\n    post_id: body.post_id,\n    linkedin_url: body.linkedin_url || null,\n    published_at: now\n  }\n}];"
+        }
+      },
+      {
+        "id": "node-whc-3",
+        "name": "Mark Published in Supabase",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          440,
+          0
+        ],
+        "parameters": {
+          "method": "PATCH",
+          "url": "={{ $env.SUPABASE_URL }}/rest/v1/posts?id=eq.{{ $json.post_id }}",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "apikey",
+                "value": "={{ $env.SUPABASE_ANON_KEY }}"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{ $env.SUPABASE_ANON_KEY }}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Prefer",
+                "value": "return=representation"
+              }
+            ]
+          },
+          "sendBody": true,
+          "contentType": "json",
+          "body": {
+            "status": "published",
+            "published_at": "={{ $json.published_at }}",
+            "linkedin_url": "={{ $json.linkedin_url }}"
+          }
+        }
+      },
+      {
+        "id": "node-whc-4",
+        "name": "Build Response",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          660,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const updated = Array.isArray($input.first().json) ? $input.first().json[0] : $input.first().json;\nreturn [{ json: { success: true, post: updated } }];"
+        }
+      },
+      {
+        "id": "node-whc-5",
+        "name": "Return Result",
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.1,
+        "position": [
+          880,
+          0
+        ],
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{ $json }}"
+        }
+      }
+    ],
+    "connections": {
+      "Receive Mark Published": {
+        "main": [
+          [
+            {
+              "node": "Validate Request",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Validate Request": {
+        "main": [
+          [
+            {
+              "node": "Mark Published in Supabase",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Mark Published in Supabase": {
+        "main": [
+          [
+            {
+              "node": "Build Response",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Response": {
+        "main": [
+          [
+            {
+              "node": "Return Result",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "authors": "Antón Piñeiro",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-03-31T20:18:50.295Z",
+        "id": 198,
+        "workflowId": "SBV0JacQqCewsit7",
+        "versionId": "66c3d0ad-cada-490e-af92-fceb4fe69a8b",
+        "event": "activated",
+        "userId": "84bcaed9-b4e7-4f27-9d34-93fb75581f76"
+      }
+    ]
+  }
+}

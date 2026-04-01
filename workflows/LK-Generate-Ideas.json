@@ -1,0 +1,471 @@
+{
+  "updatedAt": "2026-04-01T06:19:25.620Z",
+  "createdAt": "2026-03-31T20:25:35.025Z",
+  "id": "OPsJkWCbi2YLvGNp",
+  "name": "[LK] Generate Ideas",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "id": "ideas-node-1",
+      "name": "Daily at 7AM UTC",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 7 * * *"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ideas-node-2",
+      "name": "Fetch Settings",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        220,
+        0
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/settings?id=eq.1&select=ideas_per_day,sector,brand_keywords,author_name,author_title",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_ANON_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "ideas-node-3",
+      "name": "Build Ideas Prompt",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const settingsArr = $input.first().json;\nconst settings = Array.isArray(settingsArr) ? settingsArr[0] : settingsArr;\nconst n = settings?.ideas_per_day || 5;\nconst sector = settings?.sector || 'formacion_empresarial_B2B';\nconst brandKeywords = (settings?.brand_keywords || ['formacion','aprendizaje']).join(', ');\nconst authorName = settings?.author_name || 'el consultor';\nconst today = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });\nconst year = new Date().getFullYear();\n\nconst systemPrompt = \"Eres un estratega de contenido para LinkedIn especializado en formacion empresarial B2B en Espana.\\nTu tarea: generar \" + n + \" ideas originales de publicaciones LinkedIn para hoy (\" + today + \").\\n\\nSECTOR: \" + sector + \"\\nAUTOR: \" + authorName + \"\\nPALABRAS CLAVE: \" + brandKeywords + \"\\n\\nPara cada idea devuelve:\\n- title: Titulo corto de la idea (max 80 chars)\\n- description: Descripcion de que trataria (150-200 palabras)\\n- angle: problema | solucion | historia | dato | debate | lista\\n- suggested_hashtags: Array de 5 strings SIN # (hashtags relevantes)\\n- trend_source: Que tendencia o contexto justifica esta idea hoy\\n\\nTENDENCIAS \" + year + \" A CONSIDERAR:\\n- IA en formacion y evaluacion del aprendizaje\\n- Microlearning vs formacion intensiva -- ROI medible\\n- Formacion de mandos intermedios post-pandemia\\n- Gamificacion en entornos B2B\\n- Skills gap en transformacion digital de equipos\\n- Diversidad generacional en empresas (Gen Z + Millennials + Boomers)\\n- Bienestar y salud mental en el trabajo como ventaja competitiva\\n- Upskilling obligatorio en sectores regulados (sanidad, banca, industria)\\n\\nRESPONDE SOLO JSON: {\\\"ideas\\\":[{\\\"title\\\":\\\"...\\\",\\\"description\\\":\\\"...\\\",\\\"angle\\\":\\\"...\\\",\\\"suggested_hashtags\\\":[\\\"...\\\"],\\\"trend_source\\\":\\\"...\\\"}]}\";\n\nreturn [{\n  json: {\n    system_prompt: systemPrompt,\n    user_prompt: \"Genera \" + n + \" ideas de posts LinkedIn para hoy. Que sean variadas en angulo y genuinamente utiles para el sector de formacion B2B en Espana. Nada generico.\",\n    n_ideas: n\n  }\n}];"
+      }
+    },
+    {
+      "id": "ideas-node-4",
+      "name": "Call OpenAI for Ideas",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        660,
+        0
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.openai.com/v1/chat/completions",
+        "sendHeaders": false,
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={\"model\": \"gpt-4o\", \"temperature\": 0.9, \"max_tokens\": 3000, \"response_format\": {\"type\": \"json_object\"}, \"messages\": [{\"role\": \"system\", \"content\": \"{{$json.system_prompt}}\"}, {\"role\": \"user\", \"content\": \"{{$json.user_prompt}}\"}]}",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "openAiApi"
+      },
+      "credentials": {
+        "openAiApi": {
+          "id": "aSPj5MdeJia8H0O2",
+          "name": "pineirobellas"
+        }
+      }
+    },
+    {
+      "id": "ideas-node-5",
+      "name": "Parse and Prepare Ideas",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        880,
+        0
+      ],
+      "parameters": {
+        "jsCode": "const openaiResponse = $input.first().json;\nlet ideas = [];\ntry {\n  const content = openaiResponse.choices[0].message.content;\n  const parsed = JSON.parse(content);\n  ideas = parsed.ideas || [];\n} catch(e) {\n  throw new Error('Error parsing OpenAI response: ' + e.message);\n}\n\nconst today = new Date().toISOString().split('T')[0];\n\nconst rows = ideas.map(idea => ({\n  title: idea.title || 'Sin titulo',\n  description: idea.description || '',\n  angle: idea.angle || 'idea',\n  suggested_hashtags: idea.suggested_hashtags || [],\n  trend_source: idea.trend_source || '',\n  date_generated: today,\n  status: 'new'\n}));\n\nreturn rows.map(row => ({ json: row }));"
+      }
+    },
+    {
+      "id": "ideas-node-6",
+      "name": "Insert Ideas to Supabase",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1100,
+        0
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{$env.SUPABASE_URL}}/rest/v1/ideas",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "apikey",
+              "value": "={{$env.SUPABASE_ANON_KEY}}"
+            },
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            },
+            {
+              "name": "Prefer",
+              "value": "return=minimal"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{JSON.stringify($json)}}"
+      }
+    }
+  ],
+  "connections": {
+    "Daily at 7AM UTC": {
+      "main": [
+        [
+          {
+            "node": "Fetch Settings",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Settings": {
+      "main": [
+        [
+          {
+            "node": "Build Ideas Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Ideas Prompt": {
+      "main": [
+        [
+          {
+            "node": "Call OpenAI for Ideas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call OpenAI for Ideas": {
+      "main": [
+        [
+          {
+            "node": "Parse and Prepare Ideas",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse and Prepare Ideas": {
+      "main": [
+        [
+          {
+            "node": "Insert Ideas to Supabase",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": {
+    "node:Daily at 7AM UTC": {
+      "recurrenceRules": []
+    }
+  },
+  "meta": null,
+  "pinData": null,
+  "versionId": "d88f67be-9f02-4259-9b46-9175ddfc724a",
+  "activeVersionId": "d88f67be-9f02-4259-9b46-9175ddfc724a",
+  "versionCounter": 7,
+  "triggerCount": 1,
+  "shared": [
+    {
+      "updatedAt": "2026-03-31T20:25:35.027Z",
+      "createdAt": "2026-03-31T20:25:35.027Z",
+      "role": "workflow:owner",
+      "workflowId": "OPsJkWCbi2YLvGNp",
+      "projectId": "0A2r46jIiDdsUxMV",
+      "project": {
+        "updatedAt": "2026-03-17T22:13:08.914Z",
+        "createdAt": "2026-03-17T22:12:37.916Z",
+        "id": "0A2r46jIiDdsUxMV",
+        "name": "Antón Piñeiro <pineirobellasanton@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null,
+        "creatorId": "84bcaed9-b4e7-4f27-9d34-93fb75581f76"
+      }
+    }
+  ],
+  "tags": [],
+  "activeVersion": {
+    "updatedAt": "2026-04-01T06:19:25.620Z",
+    "createdAt": "2026-04-01T06:19:25.620Z",
+    "versionId": "d88f67be-9f02-4259-9b46-9175ddfc724a",
+    "workflowId": "OPsJkWCbi2YLvGNp",
+    "nodes": [
+      {
+        "id": "ideas-node-1",
+        "name": "Daily at 7AM UTC",
+        "type": "n8n-nodes-base.scheduleTrigger",
+        "typeVersion": 1.2,
+        "position": [
+          0,
+          0
+        ],
+        "parameters": {
+          "rule": {
+            "interval": [
+              {
+                "field": "cronExpression",
+                "expression": "0 7 * * *"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "ideas-node-2",
+        "name": "Fetch Settings",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          220,
+          0
+        ],
+        "parameters": {
+          "method": "GET",
+          "url": "={{$env.SUPABASE_URL}}/rest/v1/settings?id=eq.1&select=ideas_per_day,sector,brand_keywords,author_name,author_title",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "apikey",
+                "value": "={{$env.SUPABASE_ANON_KEY}}"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+              }
+            ]
+          }
+        }
+      },
+      {
+        "id": "ideas-node-3",
+        "name": "Build Ideas Prompt",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          440,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const settingsArr = $input.first().json;\nconst settings = Array.isArray(settingsArr) ? settingsArr[0] : settingsArr;\nconst n = settings?.ideas_per_day || 5;\nconst sector = settings?.sector || 'formacion_empresarial_B2B';\nconst brandKeywords = (settings?.brand_keywords || ['formacion','aprendizaje']).join(', ');\nconst authorName = settings?.author_name || 'el consultor';\nconst today = new Date().toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });\nconst year = new Date().getFullYear();\n\nconst systemPrompt = \"Eres un estratega de contenido para LinkedIn especializado en formacion empresarial B2B en Espana.\\nTu tarea: generar \" + n + \" ideas originales de publicaciones LinkedIn para hoy (\" + today + \").\\n\\nSECTOR: \" + sector + \"\\nAUTOR: \" + authorName + \"\\nPALABRAS CLAVE: \" + brandKeywords + \"\\n\\nPara cada idea devuelve:\\n- title: Titulo corto de la idea (max 80 chars)\\n- description: Descripcion de que trataria (150-200 palabras)\\n- angle: problema | solucion | historia | dato | debate | lista\\n- suggested_hashtags: Array de 5 strings SIN # (hashtags relevantes)\\n- trend_source: Que tendencia o contexto justifica esta idea hoy\\n\\nTENDENCIAS \" + year + \" A CONSIDERAR:\\n- IA en formacion y evaluacion del aprendizaje\\n- Microlearning vs formacion intensiva -- ROI medible\\n- Formacion de mandos intermedios post-pandemia\\n- Gamificacion en entornos B2B\\n- Skills gap en transformacion digital de equipos\\n- Diversidad generacional en empresas (Gen Z + Millennials + Boomers)\\n- Bienestar y salud mental en el trabajo como ventaja competitiva\\n- Upskilling obligatorio en sectores regulados (sanidad, banca, industria)\\n\\nRESPONDE SOLO JSON: {\\\"ideas\\\":[{\\\"title\\\":\\\"...\\\",\\\"description\\\":\\\"...\\\",\\\"angle\\\":\\\"...\\\",\\\"suggested_hashtags\\\":[\\\"...\\\"],\\\"trend_source\\\":\\\"...\\\"}]}\";\n\nreturn [{\n  json: {\n    system_prompt: systemPrompt,\n    user_prompt: \"Genera \" + n + \" ideas de posts LinkedIn para hoy. Que sean variadas en angulo y genuinamente utiles para el sector de formacion B2B en Espana. Nada generico.\",\n    n_ideas: n\n  }\n}];"
+        }
+      },
+      {
+        "id": "ideas-node-4",
+        "name": "Call OpenAI for Ideas",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          660,
+          0
+        ],
+        "continueOnFail": true,
+        "parameters": {
+          "method": "POST",
+          "url": "https://api.openai.com/v1/chat/completions",
+          "sendHeaders": false,
+          "sendBody": true,
+          "contentType": "raw",
+          "rawContentType": "application/json",
+          "body": "={\"model\": \"gpt-4o\", \"temperature\": 0.9, \"max_tokens\": 3000, \"response_format\": {\"type\": \"json_object\"}, \"messages\": [{\"role\": \"system\", \"content\": \"{{$json.system_prompt}}\"}, {\"role\": \"user\", \"content\": \"{{$json.user_prompt}}\"}]}",
+          "authentication": "predefinedCredentialType",
+          "nodeCredentialType": "openAiApi"
+        },
+        "credentials": {
+          "openAiApi": {
+            "id": "aSPj5MdeJia8H0O2",
+            "name": "pineirobellas"
+          }
+        }
+      },
+      {
+        "id": "ideas-node-5",
+        "name": "Parse and Prepare Ideas",
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          880,
+          0
+        ],
+        "parameters": {
+          "jsCode": "const openaiResponse = $input.first().json;\nlet ideas = [];\ntry {\n  const content = openaiResponse.choices[0].message.content;\n  const parsed = JSON.parse(content);\n  ideas = parsed.ideas || [];\n} catch(e) {\n  throw new Error('Error parsing OpenAI response: ' + e.message);\n}\n\nconst today = new Date().toISOString().split('T')[0];\n\nconst rows = ideas.map(idea => ({\n  title: idea.title || 'Sin titulo',\n  description: idea.description || '',\n  angle: idea.angle || 'idea',\n  suggested_hashtags: idea.suggested_hashtags || [],\n  trend_source: idea.trend_source || '',\n  date_generated: today,\n  status: 'new'\n}));\n\nreturn rows.map(row => ({ json: row }));"
+        }
+      },
+      {
+        "id": "ideas-node-6",
+        "name": "Insert Ideas to Supabase",
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.2,
+        "position": [
+          1100,
+          0
+        ],
+        "parameters": {
+          "method": "POST",
+          "url": "={{$env.SUPABASE_URL}}/rest/v1/ideas",
+          "sendHeaders": true,
+          "headerParameters": {
+            "parameters": [
+              {
+                "name": "apikey",
+                "value": "={{$env.SUPABASE_ANON_KEY}}"
+              },
+              {
+                "name": "Authorization",
+                "value": "=Bearer {{$env.SUPABASE_ANON_KEY}}"
+              },
+              {
+                "name": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "name": "Prefer",
+                "value": "return=minimal"
+              }
+            ]
+          },
+          "sendBody": true,
+          "contentType": "raw",
+          "rawContentType": "application/json",
+          "body": "={{JSON.stringify($json)}}"
+        }
+      }
+    ],
+    "connections": {
+      "Daily at 7AM UTC": {
+        "main": [
+          [
+            {
+              "node": "Fetch Settings",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Fetch Settings": {
+        "main": [
+          [
+            {
+              "node": "Build Ideas Prompt",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Build Ideas Prompt": {
+        "main": [
+          [
+            {
+              "node": "Call OpenAI for Ideas",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Call OpenAI for Ideas": {
+        "main": [
+          [
+            {
+              "node": "Parse and Prepare Ideas",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Parse and Prepare Ideas": {
+        "main": [
+          [
+            {
+              "node": "Insert Ideas to Supabase",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "authors": "Antón Piñeiro",
+    "name": null,
+    "description": null,
+    "autosaved": false,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-04-01T06:19:25.656Z",
+        "id": 205,
+        "workflowId": "OPsJkWCbi2YLvGNp",
+        "versionId": "d88f67be-9f02-4259-9b46-9175ddfc724a",
+        "event": "activated",
+        "userId": "84bcaed9-b4e7-4f27-9d34-93fb75581f76"
+      },
+      {
+        "createdAt": "2026-04-01T06:19:25.645Z",
+        "id": 204,
+        "workflowId": "OPsJkWCbi2YLvGNp",
+        "versionId": "d88f67be-9f02-4259-9b46-9175ddfc724a",
+        "event": "deactivated",
+        "userId": "84bcaed9-b4e7-4f27-9d34-93fb75581f76"
+      }
+    ]
+  }
+}
