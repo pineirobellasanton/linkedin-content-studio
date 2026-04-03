@@ -199,6 +199,11 @@
                       class="flex-1 text-xs text-center py-1.5 rounded-lg bg-[#0a66c2] text-white hover:bg-[#004182] transition-colors">
                 Preview
               </button>
+              <button @click="deletePost(post.id)"
+                      class="text-xs px-2 py-1.5 rounded-lg border border-red-200 text-red-400 hover:bg-red-50 hover:text-red-600 transition-colors"
+                      title="Eliminar borrador">
+                ✕
+              </button>
             </div>
           </div>
         </template>
@@ -679,6 +684,10 @@
           <button @click="openPreview(post)"
                   class="text-xs px-3 py-1 bg-[#0a66c2] text-white rounded-lg hover:bg-[#004182] transition-colors">
             Preview
+          </button>
+          <button @click="deletePost(post.id)"
+                  class="text-xs px-3 py-1 border border-red-200 text-red-400 rounded-lg hover:bg-red-50 hover:text-red-600 transition-colors">
+            Eliminar
           </button>
         </div>
       </div>
@@ -1177,6 +1186,23 @@ function app() {
       this.currentPost = { ...this.currentPost, image_status: 'none', image_option_1: null, image_option_2: null };
     },
 
+    async deletePost(postId) {
+      if (!confirm('¿Eliminar este borrador? Esta acción no se puede deshacer.')) return;
+      try {
+        const res = await fetch(`${CONFIG.SUPABASE_URL}/rest/v1/posts?id=eq.${postId}`, {
+          method: 'DELETE',
+          headers: { apikey: CONFIG.SUPABASE_ANON_KEY, Authorization: `Bearer ${CONFIG.SUPABASE_ANON_KEY}` },
+        });
+        if (!res.ok) throw new Error('Error al eliminar');
+        this.posts = this.posts.filter(p => p.id !== postId);
+        this.historyPosts = this.historyPosts.filter(p => p.id !== postId);
+        if (this.currentPost?.id === postId) this.view = 'dashboard';
+        this.showNotif('success', 'Eliminado', 'El borrador ha sido eliminado');
+      } catch (e) {
+        this.showNotif('error', 'Error', e.message);
+      }
+    },
+
     startPolling() {
       this.stopPolling();
       this.pollingTimer = setInterval(() => this.pollImageStatus(), 10000); // cada 10s
@@ -1188,13 +1214,13 @@ function app() {
 
     async pollImageStatus() {
       try {
-        const { rows } = await this.sbGet('posts', `?id=eq.${this.currentPost.id}`);
+        const { rows } = await this.sbGet('posts', `?id=eq.${this.currentPost.id}&select=*`);
         const updated = rows[0];
         if (updated && updated.image_status !== 'pending') {
-          this.currentPost = updated;
+          this.currentPost = { ...this.currentPost, ...updated };
           this.stopPolling();
           if (updated.image_status === 'ready') {
-            this.showNotif('success', '¡Imagen lista!', 'Elige entre las 2 opciones generadas');
+            this.showNotif('success', '¡Imagen lista!', 'Elige la imagen que más te guste');
           }
         }
       } catch (e) { /* silencioso */ }
