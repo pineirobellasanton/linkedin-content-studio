@@ -921,7 +921,8 @@ function app() {
         const err = await res.json().catch(() => ({ error: res.statusText }));
         throw new Error(err.error || 'Error en la petición');
       }
-      return res.json();
+      const text = await res.text();
+      return text ? JSON.parse(text) : {};
     },
 
     // ── Supabase direct query ─────────────────────────────────
