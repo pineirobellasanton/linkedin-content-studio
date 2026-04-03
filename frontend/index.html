@@ -936,6 +936,16 @@ function app() {
       return res.json();
     },
 
+    // ── Supabase direct query ─────────────────────────────────
+    async sbGet(table, qs = '') {
+      const res = await fetch(`${CONFIG.SUPABASE_URL}/rest/v1/${table}${qs}`, {
+        headers: { apikey: CONFIG.SUPABASE_ANON_KEY, Authorization: `Bearer ${CONFIG.SUPABASE_ANON_KEY}`, Prefer: 'count=exact' },
+      });
+      if (!res.ok) throw new Error('Error al leer datos');
+      const total = parseInt((res.headers.get('Content-Range') || '0/0').split('/')[1], 10) || 0;
+      return { rows: await res.json(), total };
+    },
+
     // ── Inicialización ────────────────────────────────────────
     async init() {
       await this.loadDashboard();
@@ -963,10 +973,14 @@ function app() {
     async loadDashboard() {
       this.loadingDashboard = true;
       try {
-        const data = await this.api('/lk/get-drafts?status=all&limit=9');
-        this.posts = data.posts || [];
-        this.ideas = data.ideas || [];
-        this.stats.total = data.total || this.posts.length;
+        const today = new Date().toISOString().split('T')[0];
+        const [postsRes, ideasRes] = await Promise.all([
+          this.sbGet('posts', '?order=created_at.desc&limit=9'),
+          this.sbGet('ideas', `?date_generated=eq.${today}&status=eq.new&order=created_at.desc`),
+        ]);
+        this.posts = postsRes.rows;
+        this.ideas = ideasRes.rows;
+        this.stats.total = postsRes.total;
         this.stats.published = this.posts.filter(p => p.status === 'published').length;
         this.stats.drafts = this.posts.filter(p => p.status === 'draft').length;
       } catch (e) {
@@ -1184,8 +1198,8 @@ function app() {
 
     async pollImageStatus() {
       try {
-        const data = await this.api(`/lk/get-drafts?status=all&limit=50`);
-        const updated = (data.posts || []).find(p => p.id === this.currentPost?.id);
+        const { rows } = await this.sbGet('posts', `?id=eq.${this.currentPost.id}`);
+        const updated = rows[0];
         if (updated && updated.image_status !== 'pending') {
           this.currentPost = updated;
           this.stopPolling();
@@ -1259,10 +1273,11 @@ function app() {
     async loadHistory() {
       this.loadingHistory = true;
       try {
-        const qs = `status=${this.historyFilter}&page=${this.historyPage}&limit=${this.historyLimit}`;
-        const data = await this.api(`/lk/get-drafts?${qs}`);
-        this.historyPosts = data.posts || [];
-        this.historyTotal = data.total || 0;
+        const statusFilter = this.historyFilter === 'all' ? '' : `&status=eq.${this.historyFilter}`;
+        const offset = (this.historyPage - 1) * this.historyLimit;
+        const { rows, total } = await this.sbGet('posts', `?order=created_at.desc&limit=${this.historyLimit}&offset=${offset}${statusFilter}`);
+        this.historyPosts = rows;
+        this.historyTotal = total;
       } catch (e) {
         this.showNotif('error', 'Error al cargar historial', e.message);
       } finally {
