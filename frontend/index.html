@@ -283,12 +283,12 @@
     <!-- Preview de imagen -->
     <div x-show="createForm.imagePreview" class="relative">
       <img :src="createForm.imagePreview" class="w-full h-48 object-cover rounded-xl">
-      <button @click="createForm.imagePreview = null; createForm.imageFile = null; createForm.imageUrl = null"
+      <button @click="createForm.imagePreview = null; createForm.imageFile = null; createForm.imageUrl = null; createForm.imageBase64 = null"
               class="absolute top-2 right-2 bg-white rounded-full w-7 h-7 flex items-center justify-center shadow text-gray-500 hover:text-red-500">
         ×
       </button>
-      <div x-show="createForm.uploadingImage" class="absolute inset-0 bg-black/40 rounded-xl flex items-center justify-center">
-        <div class="w-6 h-6 border-3 border-white border-t-transparent rounded-full animate-spin"></div>
+      <div x-show="createForm.imageBase64 && creating" class="absolute inset-0 bg-black/40 rounded-xl flex items-center justify-center">
+        <p class="text-white text-xs font-medium">Procesando...</p>
       </div>
     </div>
 
@@ -297,7 +297,7 @@
 
   <!-- Botón generar -->
   <button @click="generatePost()"
-          :disabled="creating || createForm.text.length < 10 || (createForm.type === 'text_photo' && createForm.uploadingImage)"
+          :disabled="creating || createForm.text.length < 10 || (createForm.type === 'text_photo' && !createForm.imageBase64)"
           class="w-full py-3 bg-[#0a66c2] text-white font-semibold rounded-xl hover:bg-[#004182] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
     <div x-show="creating" class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
     <span x-text="creating ? 'Generando 3 versiones con IA...' : 'Generar versiones'"></span>
@@ -854,6 +854,7 @@ function app() {
       imageFile: null,
       imagePreview: null,
       imageUrl: null,
+      imageBase64: null,
       uploadingImage: false,
     },
     creating: false,
@@ -962,7 +963,7 @@ function app() {
       if (v === 'history') this.loadHistory();
       if (v === 'dashboard') this.loadDashboard();
       if (v === 'create') {
-        this.createForm = { type: 'text_only', text: '', imageFile: null, imagePreview: null, imageUrl: null, uploadingImage: false };
+        this.createForm = { type: 'text_only', text: '', imageFile: null, imagePreview: null, imageUrl: null, imageBase64: null, uploadingImage: false };
       }
       this.stopPolling();
     },
@@ -1004,34 +1005,26 @@ function app() {
       }
       this.createForm.imageFile = file;
       const reader = new FileReader();
-      reader.onload = (e) => { this.createForm.imagePreview = e.target.result; };
-      reader.readAsDataURL(file);
-      // Upload a Supabase Storage
-      this.createForm.uploadingImage = true;
-      try {
-        const filename = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.]/g, '-')}`;
-        const res = await fetch(
-          `${CONFIG.SUPABASE_URL}/storage/v1/object/${CONFIG.STORAGE_BUCKET}/${filename}`,
-          {
-            method: 'POST',
-            headers: {
-              apikey: CONFIG.SUPABASE_ANON_KEY,
-              Authorization: `Bearer ${CONFIG.SUPABASE_ANON_KEY}`,
-              'Content-Type': file.type || 'application/octet-stream',
-            },
-            body: file,
+      reader.onload = (e) => {
+        // Resize to max 1024px and convert to base64 JPEG
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          const max = 1024;
+          let w = img.width, h = img.height;
+          if (w > max || h > max) {
+            if (w > h) { h = Math.round(h * max / w); w = max; }
+            else { w = Math.round(w * max / h); h = max; }
           }
-        );
-        if (!res.ok) {
-          const errText = await res.text().catch(() => '');
-          throw new Error(errText || `HTTP ${res.status}`);
-        }
-        this.createForm.imageUrl = `${CONFIG.SUPABASE_URL}/storage/v1/object/public/${CONFIG.STORAGE_BUCKET}/${filename}`;
-      } catch (e) {
-        this.showNotif('error', 'Error al subir imagen', e.message);
-      } finally {
-        this.createForm.uploadingImage = false;
-      }
+          canvas.width = w; canvas.height = h;
+          canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+          const base64 = canvas.toDataURL('image/jpeg', 0.82);
+          this.createForm.imagePreview = base64;
+          this.createForm.imageBase64 = base64;
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
     },
 
     handleDrop(event) {
@@ -1053,10 +1046,28 @@ function app() {
         };
         const data = await this.api('/lk/generate-post', 'POST', payload);
         if (!data.success) throw new Error(data.error || 'Generación fallida');
-        // Cargar el post creado para editar
-        const mockPost = { id: data.post_id, versions: data.versions, input_type: this.createForm.type, status: 'draft', uploaded_image_url: this.createForm.imageUrl };
+        // Si text+photo, auto-disparar edición de imagen con IA
+        const isTextPhoto = this.createForm.type === 'text_photo';
+        const imageBase64 = this.createForm.imageBase64;
+        if (isTextPhoto && imageBase64 && data.versions) {
+          const v1 = Array.isArray(data.versions) ? data.versions[0] : (data.versions['1'] || {});
+          this.api('/lk/edit-image', 'POST', {
+            post_id: data.post_id,
+            image_base64: imageBase64,
+            hook: v1.hook || '',
+            body: v1.body || '',
+            cta: v1.cta || '',
+          }).catch(e => console.warn('Edit image error:', e.message));
+        }
+        const mockPost = {
+          id: data.post_id,
+          versions: data.versions,
+          input_type: this.createForm.type,
+          status: 'draft',
+          image_status: (isTextPhoto && imageBase64) ? 'pending' : 'none',
+        };
         this.openEdit(mockPost);
-        this.showNotif('success', '¡Versiones generadas!', '3 versiones listas para editar');
+        this.showNotif('success', '¡Versiones generadas!', isTextPhoto && imageBase64 ? '3 versiones listas · imagen generándose...' : '3 versiones listas para editar');
       } catch (e) {
         this.showNotif('error', 'Error al generar', e.message);
       } finally {
