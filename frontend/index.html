@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
   <title>LinkedIn Content Studio</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
@@ -428,8 +429,8 @@
       <div class="bg-white rounded-xl border border-gray-200 p-4">
         <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Imagen del post</p>
 
-        <!-- Estado: sin imagen -->
-        <div x-show="!currentPost?.image_status || currentPost?.image_status === 'none'">
+        <!-- Estado: sin imagen (solo para posts text_only) -->
+        <div x-show="(!currentPost?.image_status || currentPost?.image_status === 'none') && currentPost?.input_type !== 'text_photo'">
           <div class="space-y-3">
             <p class="text-xs text-gray-500">La IA generará una imagen optimizada para LinkedIn basándose en el contenido de la versión seleccionada.</p>
             <button @click="generateImages()"
@@ -440,6 +441,10 @@
               <span x-show="imageState.generating">Enviando...</span>
             </button>
           </div>
+        </div>
+        <!-- Estado: sin imagen (text_photo — esperando que llegue del servidor) -->
+        <div x-show="(!currentPost?.image_status || currentPost?.image_status === 'none') && currentPost?.input_type === 'text_photo'" class="text-center py-4">
+          <p class="text-xs text-gray-400">La imagen editada aparecerá aquí automáticamente.</p>
         </div>
 
         <!-- Estado: generando (pending) -->
