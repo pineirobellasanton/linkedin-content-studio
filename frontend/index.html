@@ -460,7 +460,7 @@
           <div class="relative cursor-pointer rounded-lg overflow-hidden border-2 transition-all"
                :class="editState.selectedImage === currentPost?.image_option_1 ? 'border-[#0a66c2]' : 'border-gray-200 hover:border-gray-400'"
                @click="selectImage(currentPost.image_option_1)">
-            <img :src="currentPost?.image_option_1" class="w-full h-40 object-cover">
+            <img :src="currentPost?.image_option_1" class="w-full object-contain bg-gray-50 max-h-80">
             <div x-show="editState.selectedImage === currentPost?.image_option_1"
                  class="absolute inset-0 bg-[#0a66c2]/10 flex items-center justify-center">
               <div class="bg-[#0a66c2] text-white rounded-full w-8 h-8 flex items-center justify-center font-bold">✓</div>
@@ -493,7 +493,7 @@
             </div>
           </div>
           <!-- Imagen seleccionada -->
-          <img x-show="editState.selectedImage" :src="editState.selectedImage" class="w-full h-28 object-cover rounded mb-2">
+          <img x-show="editState.selectedImage" :src="editState.selectedImage" class="w-full object-contain bg-gray-50 max-h-48 rounded mb-2">
           <!-- Texto del post -->
           <p class="text-xs text-gray-900 whitespace-pre-line" x-text="(editState.hook || '') + '\n\n' + (editState.body || '').substring(0,200) + ((editState.body || '').length > 200 ? '...' : '')"></p>
           <div x-show="editState.hashtags.length > 0" class="mt-2">
@@ -565,7 +565,7 @@
       <!-- Imagen -->
       <img x-show="editState.selectedImage"
            :src="editState.selectedImage"
-           class="w-full object-cover max-h-80">
+           class="w-full object-contain bg-gray-50 max-h-96">
 
       <!-- Acciones fake del post LinkedIn -->
       <div class="px-4 py-2 border-t border-gray-100 flex gap-4">
