@@ -1205,7 +1205,7 @@ function app() {
 
     startPolling() {
       this.stopPolling();
-      this.pollingTimer = setInterval(() => this.pollImageStatus(), 10000); // cada 10s
+      this.pollingTimer = setInterval(() => this.pollImageStatus(), 3000); // cada 3s
     },
 
     stopPolling() {
