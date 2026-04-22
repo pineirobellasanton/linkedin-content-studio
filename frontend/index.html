@@ -110,31 +110,38 @@
   </div>
 
   <div x-show="!loadingDashboard">
-    <!-- Ideas de hoy -->
-    <div x-show="ideas.length > 0" class="mb-8">
+    <!-- Tendencias Google Trends (on-demand) -->
+    <div class="mb-8">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider">Ideas de hoy ✨</h2>
-        <span class="text-xs text-gray-400" x-text="ideas.length + ' ideas'"></span>
+        <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider">Tendencias en tiempo real 🔥</h2>
+        <span x-show="trendsState.topics.length > 0" class="text-xs text-gray-400" x-text="trendsState.topics.length + ' temas'"></span>
       </div>
-      <div class="flex gap-3 overflow-x-auto scrollbar-hide pb-2">
-        <template x-for="idea in ideas" :key="idea.id">
-          <div class="flex-shrink-0 w-72 bg-white rounded-xl border border-gray-200 p-4 hover:border-[#0a66c2] hover:shadow-sm transition-all cursor-default">
-            <div class="flex items-start justify-between gap-2">
-              <div>
-                <p class="text-sm font-semibold text-gray-900 line-clamp-2" x-text="idea.title"></p>
-                <p class="text-xs text-gray-500 mt-1 line-clamp-2" x-text="idea.description"></p>
-              </div>
-            </div>
-            <div class="flex items-center justify-between mt-3">
-              <span class="text-xs bg-blue-50 text-[#0a66c2] px-2 py-0.5 rounded-full" x-text="idea.angle || 'idea'"></span>
-              <button @click="useIdea(idea)"
-                      class="text-xs text-[#0a66c2] font-medium hover:underline">
-                Usar esta idea →
-              </button>
-            </div>
-          </div>
+      <div class="flex gap-2 mb-3">
+        <input x-model="trendsState.query" type="text"
+               @keydown.enter="searchTrends()"
+               class="flex-1 border border-gray-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#0a66c2] focus:border-transparent"
+               placeholder="Ej: formación empresarial, liderazgo, IA en RRHH...">
+        <button @click="searchTrends()"
+                :disabled="trendsState.loading || trendsState.query.trim().length < 2"
+                class="px-4 py-2 bg-[#0a66c2] text-white text-sm font-medium rounded-xl hover:bg-[#004182] disabled:opacity-50 flex items-center gap-2 whitespace-nowrap">
+          <div x-show="trendsState.loading" class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+          <span x-show="!trendsState.loading">Buscar tendencias</span>
+          <span x-show="trendsState.loading">Buscando...</span>
+        </button>
+      </div>
+      <!-- Resultados -->
+      <div x-show="trendsState.topics.length > 0" class="flex gap-2 flex-wrap">
+        <template x-for="t in trendsState.topics" :key="t.topic">
+          <button @click="useTrend(t)"
+                  class="bg-white border border-gray-200 rounded-xl px-3 py-2 text-left hover:border-[#0a66c2] hover:shadow-sm transition-all group">
+            <p class="text-sm font-medium text-gray-900 group-hover:text-[#0a66c2]" x-text="t.topic"></p>
+            <p class="text-xs text-gray-400 mt-0.5" x-text="t.trend"></p>
+          </button>
         </template>
       </div>
+      <p x-show="trendsState.topics.length === 0 && !trendsState.loading && !trendsState.error"
+         class="text-xs text-gray-400">Busca un tema y elige una tendencia para generar el post directamente</p>
+      <p x-show="trendsState.error" class="text-xs text-red-500 mt-1" x-text="trendsState.error"></p>
     </div>
 
     <!-- Stats rápidas -->
@@ -584,6 +591,22 @@
 
     <!-- Acciones -->
     <div class="space-y-3">
+      <!-- Publicar directamente en LinkedIn -->
+      <div x-show="currentPost?.status !== 'published'">
+        <button @click="publishToLinkedIn()"
+                :disabled="publishing"
+                class="w-full py-3 bg-[#0a66c2] text-white font-semibold rounded-xl hover:bg-[#004182] transition-colors disabled:opacity-50 flex items-center justify-center gap-2">
+          <div x-show="publishing" class="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+          <template x-if="!publishing">
+            <span class="flex items-center gap-2">
+              <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+              Publicar en LinkedIn
+            </span>
+          </template>
+          <span x-show="publishing">Publicando...</span>
+        </button>
+      </div>
+
       <!-- Botón copiar todo -->
       <button @click="copyFullPost()"
               class="w-full py-3 border-2 border-[#0a66c2] text-[#0a66c2] font-semibold rounded-xl hover:bg-blue-50 transition-colors flex items-center justify-center gap-2">
@@ -591,17 +614,7 @@
         Copiar texto del post
       </button>
 
-      <!-- Instrucción manual -->
-      <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 text-center">
-        <p class="text-sm font-semibold text-amber-800">Pasos para publicar</p>
-        <p class="text-sm text-amber-700 mt-1">1. Copia el texto → 2. Abre LinkedIn → 3. Crea la publicación → 4. Vuelve aquí y marca como publicado</p>
-        <a href="https://www.linkedin.com/feed/" target="_blank"
-           class="inline-block mt-3 px-4 py-2 bg-[#0a66c2] text-white text-sm font-medium rounded-lg hover:bg-[#004182]">
-          Abrir LinkedIn →
-        </a>
-      </div>
-
-      <!-- Marcar como publicado -->
+      <!-- Marcar como publicado manualmente -->
       <div x-show="currentPost?.status !== 'published'">
         <div class="flex gap-2">
           <input x-model="publishedUrl" type="url"
@@ -613,6 +626,7 @@
             <span x-text="markingPublished ? 'Guardando...' : '✓ Marcar publicado'"></span>
           </button>
         </div>
+        <p class="text-xs text-gray-400 text-center mt-1">O copia el texto, publícalo tú en LinkedIn y márcalo aquí</p>
       </div>
 
       <!-- Ya publicado -->
@@ -848,7 +862,6 @@ function app() {
 
     // Dashboard
     posts: [],
-    ideas: [],
     stats: { total: 0, published: 0, drafts: 0 },
     loadingDashboard: true,
 
@@ -888,6 +901,15 @@ function app() {
     // Preview
     publishedUrl: '',
     markingPublished: false,
+    publishing: false,
+
+    // Tendencias
+    trendsState: {
+      query: '',
+      loading: false,
+      topics: [],
+      error: '',
+    },
 
     // History
     historyPosts: [],
@@ -977,13 +999,8 @@ function app() {
     async loadDashboard() {
       this.loadingDashboard = true;
       try {
-        const today = new Date().toISOString().split('T')[0];
-        const [postsRes, ideasRes] = await Promise.all([
-          this.sbGet('posts', '?order=created_at.desc&limit=9'),
-          this.sbGet('ideas', `?date_generated=eq.${today}&status=eq.new&order=created_at.desc`),
-        ]);
+        const postsRes = await this.sbGet('posts', '?order=created_at.desc&limit=9');
         this.posts = postsRes.rows;
-        this.ideas = ideasRes.rows;
         this.stats.total = postsRes.total;
         this.stats.published = this.posts.filter(p => p.status === 'published').length;
         this.stats.drafts = this.posts.filter(p => p.status === 'draft').length;
@@ -992,12 +1009,6 @@ function app() {
       } finally {
         this.loadingDashboard = false;
       }
-    },
-
-    useIdea(idea) {
-      this.createForm.type = 'brief';
-      this.createForm.text = idea.title + '\n\n' + (idea.description || '');
-      this.goTo('create');
     },
 
     // ── Crear post ────────────────────────────────────────────
@@ -1428,6 +1439,53 @@ function app() {
       if (!dateStr) return '';
       const d = new Date(dateStr);
       return d.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' });
+    },
+
+    // ── Google Trends ─────────────────────────────────────────
+    async searchTrends() {
+      const q = this.trendsState.query.trim();
+      if (q.length < 2) return;
+      this.trendsState.loading = true;
+      this.trendsState.error = '';
+      this.trendsState.topics = [];
+      try {
+        const data = await this.api('/lk/search-trends', 'POST', { query: q });
+        if (data.success && data.topics?.length > 0) {
+          this.trendsState.topics = data.topics;
+        } else {
+          this.trendsState.error = 'No se encontraron tendencias para este tema. Prueba con otras palabras.';
+        }
+      } catch (e) {
+        this.trendsState.error = 'Error al buscar tendencias: ' + e.message;
+      } finally {
+        this.trendsState.loading = false;
+      }
+    },
+
+    useTrend(trend) {
+      this.createForm.type = 'brief';
+      this.createForm.text = trend.topic;
+      this.goTo('create');
+    },
+
+    // ── Publicar en LinkedIn ──────────────────────────────────
+    async publishToLinkedIn() {
+      if (!this.currentPost?.id) return;
+      if (!confirm('¿Publicar este post directamente en tu LinkedIn?')) return;
+      this.publishing = true;
+      try {
+        const data = await this.api('/lk/publish-to-linkedin', 'POST', { post_id: this.currentPost.id });
+        if (data.success) {
+          this.currentPost = { ...this.currentPost, status: 'published' };
+          this.showNotif('success', '¡Publicado en LinkedIn!', 'Tu post ya está en línea');
+        } else {
+          throw new Error(data.error || 'Error al publicar');
+        }
+      } catch (e) {
+        this.showNotif('error', 'Error al publicar', e.message);
+      } finally {
+        this.publishing = false;
+      }
     },
   };
 }
