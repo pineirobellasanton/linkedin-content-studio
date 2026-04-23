@@ -113,8 +113,8 @@
     <!-- Tendencias Google Trends (on-demand) -->
     <div class="mb-8">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider">Tendencias en tiempo real 🔥</h2>
-        <span x-show="trendsState.topics.length > 0" class="text-xs text-gray-400" x-text="trendsState.topics.length + ' temas'"></span>
+        <h2 class="text-sm font-semibold text-gray-500 uppercase tracking-wider">Noticias recientes 📰</h2>
+        <span x-show="trendsState.news.length > 0" class="text-xs text-gray-400" x-text="trendsState.news.length + ' noticias'"></span>
       </div>
       <div class="flex gap-2 mb-3">
         <input x-model="trendsState.query" type="text"
@@ -129,43 +129,25 @@
           <span x-show="trendsState.loading">Buscando...</span>
         </button>
       </div>
-      <!-- Sin resultados aún -->
-      <p x-show="trendsState.topics.length === 0 && trendsState.news.length === 0 && !trendsState.loading && !trendsState.error"
-         class="text-xs text-gray-400">Busca un tema y elige una tendencia o noticia para generar el post directamente</p>
+      <p x-show="trendsState.news.length === 0 && !trendsState.loading && !trendsState.error"
+         class="text-xs text-gray-400">Busca un tema y elige una noticia para generar el post directamente</p>
       <p x-show="trendsState.error" class="text-xs text-red-500 mt-1" x-text="trendsState.error"></p>
 
-      <!-- Tendencias de búsqueda -->
-      <div x-show="trendsState.topics.length > 0">
-        <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">🔍 Tendencias de búsqueda</p>
-        <div class="flex gap-2 flex-wrap">
-          <template x-for="t in trendsState.topics" :key="t.topic">
-            <button @click="useTrend(t)"
-                    class="bg-white border border-gray-200 rounded-xl px-3 py-2 text-left hover:border-[#0a66c2] hover:shadow-sm transition-all group">
-              <p class="text-sm font-medium text-gray-900 group-hover:text-[#0a66c2]" x-text="t.topic"></p>
-              <p class="text-xs text-gray-400 mt-0.5" x-text="t.trend"></p>
-            </button>
-          </template>
-        </div>
-      </div>
-
       <!-- Noticias recientes -->
-      <div x-show="trendsState.news.length > 0" class="mt-4">
-        <p class="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">📰 Noticias recientes</p>
-        <div class="space-y-2">
-          <template x-for="n in trendsState.news" :key="n.title">
-            <button @click="useNews(n)"
-                    class="w-full bg-white border border-gray-200 rounded-xl px-3 py-2.5 text-left hover:border-[#0a66c2] hover:shadow-sm transition-all group flex items-start gap-3">
-              <div class="flex-1 min-w-0">
-                <p class="text-sm font-medium text-gray-900 group-hover:text-[#0a66c2] line-clamp-2" x-text="n.title"></p>
-                <p class="text-xs text-gray-400 mt-0.5">
-                  <span x-text="n.source"></span>
-                  <span x-show="n.date"> · <span x-text="n.date"></span></span>
-                </p>
-              </div>
-              <svg class="w-4 h-4 text-gray-300 group-hover:text-[#0a66c2] flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
-            </button>
-          </template>
-        </div>
+      <div x-show="trendsState.news.length > 0" class="space-y-2">
+        <template x-for="n in trendsState.news" :key="n.title">
+          <button @click="useNews(n)"
+                  class="w-full bg-white border border-gray-200 rounded-xl px-3 py-2.5 text-left hover:border-[#0a66c2] hover:shadow-sm transition-all group flex items-start gap-3">
+            <div class="flex-1 min-w-0">
+              <p class="text-sm font-medium text-gray-900 group-hover:text-[#0a66c2] line-clamp-2" x-text="n.title"></p>
+              <p class="text-xs text-gray-400 mt-0.5">
+                <span x-text="n.source"></span>
+                <span x-show="n.date"> · <span x-text="n.date"></span></span>
+              </p>
+            </div>
+            <svg class="w-4 h-4 text-gray-300 group-hover:text-[#0a66c2] flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg>
+          </button>
+        </template>
       </div>
     </div>
 
@@ -933,11 +915,10 @@ function app() {
     markingPublished: false,
     copied: false,
 
-    // Tendencias
+    // Noticias
     trendsState: {
       query: '',
       loading: false,
-      topics: [],
       news: [],
       error: '',
     },
@@ -1480,18 +1461,13 @@ function app() {
       if (q.length < 2) return;
       this.trendsState.loading = true;
       this.trendsState.error = '';
-      this.trendsState.topics = [];
       this.trendsState.news = [];
       try {
         const data = await this.api('/lk/search-trends', 'POST', { query: q });
-        if (data.success) {
-          this.trendsState.topics = data.topics || [];
-          this.trendsState.news   = data.news   || [];
-          if (!this.trendsState.topics.length && !this.trendsState.news.length) {
-            this.trendsState.error = 'No se encontraron resultados para este tema. Prueba con otras palabras.';
-          }
+        if (data.success && data.news?.length > 0) {
+          this.trendsState.news = data.news;
         } else {
-          this.trendsState.error = 'No se encontraron resultados. Prueba con otras palabras.';
+          this.trendsState.error = 'No se encontraron noticias para este tema. Prueba con otras palabras.';
         }
       } catch (e) {
         this.trendsState.error = 'Error al buscar: ' + e.message;
@@ -1500,16 +1476,22 @@ function app() {
       }
     },
 
-    useTrend(trend) {
-      this.createForm.type = 'brief';
-      this.createForm.text = trend.topic;
-      this.goTo('create');
-    },
-
-    useNews(n) {
-      this.createForm.type = 'brief';
-      this.createForm.text = n.title + (n.snippet ? '\n\n' + n.snippet : '');
-      this.goTo('create');
+    async useNews(n) {
+      this.trendsState.loading = true;
+      try {
+        const data = await this.api('/lk/generate-post', 'POST', {
+          input_type: 'news',
+          input_text: n.title + (n.source ? ' (' + n.source + (n.date ? ', ' + n.date : '') + ')' : ''),
+        });
+        if (!data.success) throw new Error(data.error || 'Error al generar');
+        const mockPost = { id: data.post_id, versions: data.versions, input_type: 'news', status: 'draft', image_status: 'none' };
+        this.openEdit(mockPost);
+        this.showNotif('success', '¡Post generado!', '3 versiones listas basadas en la noticia');
+      } catch (e) {
+        this.showNotif('error', 'Error al generar post', e.message);
+      } finally {
+        this.trendsState.loading = false;
+      }
     },
 
   };
